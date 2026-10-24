@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-24
+
 ### Added
 
 - Compit heating controllers through the iNext cloud with the user's account:
@@ -27,3 +29,6 @@ the notes of the version's GitHub Release.
   periodic read never stops after a follow-up read.
 - One failing device never stops the others; a refused device never signs in
   again; a restart or the test button never reads sooner than the interval.
+
+[Unreleased]: https://github.com/LM1LC3N7/gladys-compit/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-compit/releases/tag/v0.1.1

@@ -63,24 +63,35 @@ test/                             node --test, against the SDK's fake Gladys and
 - Manifest keys (`email`, `password`, `allow_setpoints`, `max_setpoint`,
   `allow_dhw`, `max_dhw`, `allow_seasons`, `poll_interval`, `language`, the
   action `test_connection`) are frozen.
-- **No switch, no writable binary.** Commands are `thermostat` setpoints and a
-  `text/select` season, each behind its own option, off by default.
-- **"Summer" (heating off) is never blocked** by its option, a pause or another
-  command; the exact refusal cases are listed in the docs: keep them in sync.
+- **No switch, no writable binary.** Commands are the room setpoint
+  (`thermostat/target-temperature`), the hot water setpoint
+  (`water-heater/target-temperature`, whole degrees) and the `text/select`
+  season of the installation, each behind its own option, off by default.
+- **"Summer"** (heating and cooling of the whole installation off) needs no
+  option, goes through a pause (one try), signs in by itself when needed,
+  waits only for the departure of a previous write of the device (never its
+  answer). Its exact refusal cases are listed in the docs: keep the code
+  (`protect`, `sessionFor`) and the docs in sync.
 - **Bounds**: room 5 °C to the ceiling (24 °C by default, 30 °C at most); hot
   water 20 °C to the ceiling (55 °C by default, 60 °C at most); always
   intersected with the bounds the controller gives.
 - **Secrets**: the e-mail address, the password and the token never reach a
   log, a status, an error, `/data` (they live in private fields of the
-  client). `/data` holds a salted fingerprint of refused credentials only.
+  client). While the account is refused, `/data` holds a salted fingerprint
+  of the e-mail and password (refused credentials) or of the e-mail only
+  (other refusals): never a print of a password that may work.
   A secret field is "kept by Gladys in its database, never shown again",
   never said to be protected by a cipher.
-- **No app identity**: the client registers as "Gladys" (uid
-  `gladys-compit`), never as another application, no application key, no
-  User-Agent of an app.
+- **No app identity**: the client registers as "Gladys" (a uid
+  `gladys-compit-<16 hex>` per installation, kept in `/data`), never as
+  another application, no application key, no User-Agent of an app.
+- **A 401 on a secondary resource** (a device state, a fresh read, a write)
+  never drops the token: the token is confirmed on `/gates`.
 - **Failures**: a refused account is a final stop (no automatic retry); never
-  two sign-ins within a minute; 429/5xx a bounded pause persisted; never read
-  sooner than the interval; a reconnection to Gladys clears none of them.
+  two sign-ins within a minute; a failing device is that device only; 429, or
+  every device failing, a bounded pause persisted; never read sooner than the
+  interval (restart and test button included); a reconnection to Gladys
+  clears none of them.
 - Units only from the core's `DEVICE_FEATURE_UNITS_BY_CATEGORY`.
 - **The container rootfs is read-only.** Write only under `/data`.
 - **Versions belong to the Release workflow** (Actions → Release). Never edit

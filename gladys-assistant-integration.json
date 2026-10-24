@@ -21,8 +21,8 @@
         "fr": "Votre compte Compit iNext"
       },
       "description": {
-        "en": "Shows the Compit controllers of your iNext account in Gladys (room thermostats Nano One, Nano Color, Nano Color 2, boiler, mixing valve, hot water, solar and heat pump controllers), through the iNext cloud: temperatures, setpoints, heating season, fuel level, alarms. Enter the e-mail address and the password of your iNext account, save, then add the devices from the Discovery tab. On its first sign-in, Gladys registers itself on the account under the name \"Gladys\", as the iNext portal asks. Never tested with a real controller nor a real account. Not affiliated with Compit.",
-        "fr": "Affiche les régulateurs Compit de votre compte iNext dans Gladys (thermostats d'ambiance Nano One, Nano Color, Nano Color 2, régulateurs de chaudière, de vanne mélangeuse, d'eau chaude, solaires et de pompe à chaleur), par le cloud iNext : températures, consignes, saison de chauffage, niveau de combustible, alarmes. Saisissez l'adresse e-mail et le mot de passe de votre compte iNext, enregistrez, puis ajoutez les appareils depuis l'onglet Découverte. À sa première connexion, Gladys s'enregistre sur le compte sous le nom « Gladys », comme le demande le portail iNext. Jamais testé avec un vrai régulateur ni un vrai compte. Sans lien avec Compit."
+        "en": "Shows the Compit controllers of your iNext account in Gladys (room thermostats Nano One, Nano Color, Nano Color 2, boiler, mixing valve, hot water, solar and heat pump controllers), through the iNext cloud: temperatures, setpoints, heating season, fuel level, alarms. Enter the e-mail address and the password of your iNext account, save, then add the devices from the Discovery tab. On its first sign-in, Gladys registers itself on the account under the name \"Gladys\", as the Home Assistant library does. Never tested with a real controller nor a real account. Not affiliated with Compit.",
+        "fr": "Affiche les régulateurs Compit de votre compte iNext dans Gladys (thermostats d'ambiance Nano One, Nano Color, Nano Color 2, régulateurs de chaudière, de vanne mélangeuse, d'eau chaude, solaires et de pompe à chaleur), par le cloud iNext : températures, consignes, saison de chauffage, niveau de combustible, alarmes. Saisissez l'adresse e-mail et le mot de passe de votre compte iNext, enregistrez, puis ajoutez les appareils depuis l'onglet Découverte. À sa première connexion, Gladys s'enregistre sur le compte sous le nom « Gladys », comme le fait la bibliothèque de Home Assistant. Jamais testé avec un vrai régulateur ni un vrai compte. Sans lien avec Compit."
       },
       "links": [
         {
@@ -76,8 +76,8 @@
         "fr": "Commandes"
       },
       "description": {
-        "en": "By default Gladys only reads. Each kind of command has its own option. Once allowed, the dashboard, the scenes and the voice assistants can change the manual setpoint of a room thermostat, the hot water setpoint, or the heating season, always within the bounds below and those of the controller. \"Summer\" (heating off) is always allowed: it only stops the heating.",
-        "fr": "Par défaut Gladys ne fait que lire. Chaque type de commande a sa propre option. Une fois autorisés, le tableau de bord, les scènes et les assistants vocaux peuvent changer la consigne manuelle d'un thermostat d'ambiance, la consigne d'eau chaude ou la saison de chauffage, toujours dans les bornes ci-dessous et celles du régulateur. « Été » (chauffage arrêté) est toujours permis : il ne fait qu'arrêter le chauffage."
+        "en": "By default Gladys only reads. Each kind of command has its own option. Once allowed, the dashboard, the scenes and the voice assistants can change the manual setpoint of a room thermostat, the hot water setpoint, or the season of the installation, always within the bounds below and those of the controller. \"Summer\" needs no option: it sets the season of the whole installation, which stops the heating and the cooling; the guide lists the cases where it is still refused.",
+        "fr": "Par défaut Gladys ne fait que lire. Chaque type de commande a sa propre option. Une fois autorisés, le tableau de bord, les scènes et les assistants vocaux peuvent changer la consigne manuelle d'un thermostat d'ambiance, la consigne d'eau chaude ou la saison de l'installation, toujours dans les bornes ci-dessous et celles du régulateur. « Été » n'a pas besoin d'option : il règle la saison de toute l'installation, ce qui arrête le chauffage et le rafraîchissement ; le guide liste les cas où il est encore refusé."
       }
     },
     {
@@ -88,8 +88,8 @@
         "fr": "Autoriser les commandes de consigne d'ambiance"
       },
       "description": {
-        "en": "Off by default. Off: every change of the manual setpoint of a room thermostat is refused.",
-        "fr": "Désactivé par défaut. Désactivé : tout changement de la consigne manuelle d'un thermostat d'ambiance est refusé."
+        "en": "Off by default. Off: every change of the manual setpoint of a Nano Color or Nano Color 2 room thermostat is refused.",
+        "fr": "Désactivé par défaut. Désactivé : tout changement de la consigne manuelle d'un thermostat d'ambiance Nano Color ou Nano Color 2 est refusé."
       },
       "required": false,
       "default": false
@@ -118,8 +118,8 @@
         "fr": "Autoriser les commandes de consigne d'eau chaude"
       },
       "description": {
-        "en": "Off by default. Off: every change of the hot water setpoint is refused.",
-        "fr": "Désactivé par défaut. Désactivé : tout changement de la consigne d'eau chaude est refusé."
+        "en": "Off by default. Off: every change of the hot water setpoint is refused. Whole degrees.",
+        "fr": "Désactivé par défaut. Désactivé : tout changement de la consigne d'eau chaude est refusé. Degrés entiers."
       },
       "required": false,
       "default": false
@@ -144,12 +144,12 @@
       "key": "allow_seasons",
       "type": "boolean",
       "label": {
-        "en": "Allow the season changes",
-        "fr": "Autoriser les changements de saison"
+        "en": "Allow \"Winter\" (season changes)",
+        "fr": "Autoriser « Hiver » (changements de saison)"
       },
       "description": {
-        "en": "Off by default. Off: \"Winter\" (heating on) is refused. \"Summer\" (heating off) is always allowed. \"Cooling\" is never sent from Gladys in this version.",
-        "fr": "Désactivé par défaut. Désactivé : « Hiver » (chauffage en marche) est refusé. « Été » (chauffage arrêté) est toujours permis. « Rafraîchissement » n'est jamais envoyé depuis Gladys dans cette version."
+        "en": "Off by default. Off: \"Winter\" (heating on) is refused. \"Summer\" (heating and cooling of the whole installation off) needs no option (see the guide for its refusal cases). \"Cooling\" is never sent from Gladys in this version.",
+        "fr": "Désactivé par défaut. Désactivé : « Hiver » (chauffage en marche) est refusé. « Été » (chauffage et rafraîchissement de toute l'installation arrêtés) n'a pas besoin d'option (voir le guide pour ses cas de refus). « Rafraîchissement » n'est jamais envoyé depuis Gladys dans cette version."
       },
       "required": false,
       "default": false
@@ -209,8 +209,8 @@
         "fr": "Tester la connexion"
       },
       "description": {
-        "en": "Reads iNext once (even after a refused account, but never two sign-ins within a minute) and shows its state.",
-        "fr": "Lit iNext une fois (même après un compte refusé, mais jamais deux connexions en moins d'une minute) et affiche son état."
+        "en": "Reads iNext once (even after a refused account), never sooner than the refresh interval after the last read nor two sign-ins within a minute, and shows its state.",
+        "fr": "Lit iNext une fois (même après un compte refusé), jamais plus tôt que l'intervalle de rafraîchissement après la dernière lecture ni deux connexions en moins d'une minute, et affiche son état."
       },
       "timeout_seconds": 30
     }

@@ -21,7 +21,11 @@
 
 export const COMPIT = {
   apiUrl: 'https://inext.compit.pl/mobile/v2/compit',
-  /** The name this client registers under on the account (never an app's name). */
+  /**
+   * The name this client registers under on the account (never an app's
+   * name), and the start of its uid: one uid per installation, random,
+   * kept in /data (two Gladys on one account never share a client).
+   */
   clientUid: 'gladys-compit',
   clientLabel: 'Gladys',
 };

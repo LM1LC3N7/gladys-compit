@@ -14,7 +14,13 @@ import { CODES } from '../src/compit/errors.js';
 function scripted(answers) {
   const requests = [];
   const request = async (options) => {
-    requests.push({ ...options, body: options.body && JSON.parse(options.body) });
+    const form = options.contentType === 'application/x-www-form-urlencoded';
+    const sent =
+      options.body &&
+      (form ? Object.fromEntries(new URLSearchParams(options.body)) : JSON.parse(options.body));
+    // The transport calls beforeSend once, when the connection is up.
+    options.beforeSend?.();
+    requests.push({ ...options, body: sent, form });
     const next = answers.shift();
     const [status, body, headers = {}] = typeof next === 'function' ? next(options) : next;
     return { status, headers, body: body === undefined ? '' : JSON.stringify(body) };
@@ -48,10 +54,14 @@ test('a first sign-in registers the client once, then authorizes once more', asy
   assert.ok(t.requests.every((r) => r.url.startsWith('https://inext.compit.pl/mobile/v2/compit/')));
 });
 
-for (const status of [400, 401, 403]) {
-  test(`/authorize ${status} is a refused login`, async () => {
+for (const [status, reason] of [
+  [400, 'request'],
+  [401, 'login'],
+  [403, 'login'],
+]) {
+  test(`/authorize ${status} is a refused account (${reason})`, async () => {
     const c = client(scripted([[status, {}]]));
-    await assert.rejects(c.gates(), (err) => err.code === CODES.REFUSED && err.reason === 'login');
+    await assert.rejects(c.gates(), (err) => err.code === CODES.REFUSED && err.reason === reason);
   });
 }
 
@@ -108,16 +118,67 @@ test('a token refused right after the sign-in is a stop; an old one is renewed o
   assert.equal(old.requests.at(-1).headers.authorization, 'tok2');
 });
 
-test('the state of a device: a 401/403 is passed on, never a new sign-in', async () => {
+test('the state of a device: a 401/403 is passed on, the token kept, never a new sign-in', async () => {
   const t = scripted([
     [200, { token: 'tok' }],
+    [200, { gates: [] }],
     [403, {}],
     [401, {}],
+    [200, { gates: [] }],
   ]);
   const c = client(t, { now: () => 1e9 });
+  await c.gates();
   await assert.rejects(c.state(5), (err) => err.status === 403);
   await assert.rejects(c.state(5), (err) => err.status === 401);
+  assert.equal(c.hasSession, true, 'a secondary 401 never drops the token');
+  assert.equal(await c.confirmToken(), 'valid');
+  assert.equal(t.requests.at(-1).headers.authorization, 'tok');
   assert.equal(t.requests.filter((r) => r.url.endsWith('/authorize')).length, 1);
+});
+
+test('confirmToken: the gates refuse the old token too, it is renewed once', async () => {
+  let now = 0;
+  const t = scripted([
+    [200, { token: 'tok' }],
+    [200, { gates: [] }],
+    [401, {}],
+    [200, { token: 'tok2' }],
+  ]);
+  const c = client(t, { now: () => now });
+  await c.gates();
+  now = 120_000;
+  assert.equal(await c.confirmToken(), 'renewed');
+  assert.equal(t.requests.filter((r) => r.url.endsWith('/authorize')).length, 2);
+  const fresh = scripted([
+    [200, { token: 'tok' }],
+    [200, { gates: [] }],
+    [401, {}],
+  ]);
+  const d = client(fresh, { now: () => 0 });
+  await d.gates();
+  await assert.rejects(d.confirmToken(), (err) => err.reason === 'token');
+});
+
+test('the sign-in and the registration are forms with the uid of the installation', async () => {
+  const t = scripted([
+    [422, { token: 'reg' }],
+    [200, {}],
+    [200, { token: 'tok' }],
+  ]);
+  const c = client(t, { uid: 'gladys-compit-0123456789abcdef' });
+  await c.login();
+  assert.ok(t.requests.every((r) => r.form));
+  assert.deepEqual(t.requests[0].body, {
+    email: 'jan@example.com',
+    password: 'pw',
+    uid: 'gladys-compit-0123456789abcdef',
+    label: 'Gladys',
+  });
+  assert.deepEqual(t.requests[1].body, {
+    fcm_token: '',
+    uid: 'gladys-compit-0123456789abcdef',
+    label: 'Gladys',
+  });
 });
 
 test('no sign-in within the minute; device ids only digits; commands never sign in', async () => {

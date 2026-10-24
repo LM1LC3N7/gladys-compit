@@ -8,10 +8,18 @@
 //     a final stop, no automatic retry. Only saving other credentials, or a
 //     successful "Test the connection", lifts it;
 //   - `fp`: while refused only, a salted scrypt fingerprint (16 bytes, a
-//     random salt per file) of the refused e-mail and password, so that a
-//     restart tells whether the refusal still concerns the configured
-//     account. Erased by the first successful sign-in: nothing in the file
-//     can confirm a password that works;
+//     random salt per file), so that a restart tells whether the refusal
+//     still concerns the configured account: of the e-mail and the password
+//     when iNext refused them (`reason: 'login'`), of the e-mail ONLY for
+//     the other refusals (a token refused after a sign-in, the registration,
+//     a request refused with 400), where the password may well be good.
+//     Erased by the first successful sign-in: nothing in the file can
+//     confirm a password that works;
+//   - `uid`: the uid this installation registers under on the account
+//     (random, made once; not a secret);
+//   - `lastReadAt`: when the last read of the polling began (written before
+//     it leaves, at most once a minute), so that a restart loop never reads
+//     faster than the interval;
 //   - `lastLoginAt`: when the last sign-in left, so that a restart never
 //     signs in twice within a minute;
 //   - `stops`: the sticky "Summer" guards ([{ id, until }], a device id and
@@ -77,7 +85,8 @@ export function memoryStore(initial = null, { failing = false } = {}) {
   };
 }
 
-const REASONS = new Set(['login', 'token', 'client']);
+const REASONS = new Set(['login', 'token', 'client', 'request']);
+const UID = /^gladys-compit-[0-9a-f]{16}$/;
 
 /** The persisted state, repaired and bounded against `now`. */
 export function normalizeMemory(raw, now) {
@@ -94,7 +103,7 @@ export function normalizeMemory(raw, now) {
         ? Math.min(pausedUntil, now + TIMINGS.pauseMax)
         : 0,
     // A time ahead of the clock counts as now (never a sign-in blocked for long).
-    lastLoginAt: Number.isFinite(lastLoginAt) && lastLoginAt > 0 ? Math.min(lastLoginAt, now) : 0,
+    lastLoginAt: readTime(lastLoginAt, now),
     salt:
       typeof salt === 'string' && /^[0-9a-f]{32}$/.test(salt)
         ? salt
@@ -104,10 +113,18 @@ export function normalizeMemory(raw, now) {
     fp: isRefused && typeof fp === 'string' && /^[0-9a-f]{32}$/.test(fp) ? fp : '',
     reason: isRefused && REASONS.has(reason) ? reason : isRefused ? 'login' : '',
     stops: readStops(own(raw, 'stops'), now),
+    uid: typeof own(raw, 'uid') === 'string' && UID.test(own(raw, 'uid')) ? own(raw, 'uid') : '',
+    lastReadAt: readTime(own(raw, 'lastReadAt'), now),
   };
 }
 
 const MAX_STOPS = 32;
+
+/** A past time, else 0; a time ahead of the clock counts as now. */
+const readTime = (value, now) => (Number.isFinite(value) && value > 0 ? Math.min(value, now) : 0);
+
+/** A new uid for this installation. */
+export const newUid = () => `gladys-compit-${randomBytes(8).toString('hex')}`;
 
 function readStops(list, now) {
   if (!Array.isArray(list)) {
@@ -144,6 +161,8 @@ export const serializeMemory = ({
   fp,
   reason,
   stops,
+  uid,
+  lastReadAt,
 }) => ({
   pausedUntil,
   lastLoginAt,
@@ -152,8 +171,18 @@ export const serializeMemory = ({
   fp: refused ? fp : '',
   reason: refused ? reason : '',
   stops: stops ?? [],
+  uid: uid ?? '',
+  lastReadAt: lastReadAt ?? 0,
 });
 
-/** The salted fingerprint of the account secret (never the secret). */
+/**
+ * The salted fingerprint kept while refused: of the e-mail and the password
+ * for refused credentials, of the e-mail only otherwise (never a print of a
+ * password that may work).
+ */
+export const refusalPrint = (salt, reason, email, password) =>
+  reason === 'login' ? fingerprint(salt, `${email}\n${password}`) : fingerprint(salt, `${email}\n`);
+
+/** The salted fingerprint of a text (never the text). */
 export const fingerprint = (salt, secret) =>
   scryptSync(String(secret), `${salt}:compit-account`, 16).toString('hex');

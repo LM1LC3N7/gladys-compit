@@ -14,13 +14,14 @@
 //
 // No switch, no writable binary: a "turn everything off" (Google Home,
 // Alexa, HomeKit, MCP, `switch.*` scenes) must never reach the heating. The
-// commands are two setpoints (`thermostat/target-temperature`) and the
-// heating season (`text/select`), refused unless the configuration allows
-// them (src/app.js), except "Summer" (heating off).
+// commands are the room setpoint (`thermostat/target-temperature`), the hot
+// water setpoint (`water-heater/target-temperature`, whole degrees) and the
+// season of the installation (`text/select`), refused unless the
+// configuration allows them (src/app.js), except "Summer" (no option).
 //
 // Units are those the core lists (DEVICE_FEATURE_UNITS_BY_CATEGORY): °C on
-// `temperature-sensor` and `thermostat`, % on `humidity-sensor` and
-// `level-sensor`.
+// `temperature-sensor`, `thermostat` and `water-heater`, % on
+// `humidity-sensor` and `level-sensor`.
 // -----------------------------------------------------------------------------
 
 import {
@@ -54,9 +55,9 @@ const temperature = sensor({
   min: -50,
   max: 250,
 });
-const target = (bounds) => ({
-  category: C.THERMOSTAT,
-  type: T.THERMOSTAT.TARGET_TEMPERATURE,
+const target = (bounds, category = C.THERMOSTAT, type = T.THERMOSTAT.TARGET_TEMPERATURE) => ({
+  category,
+  type,
   unit: U.CELSIUS,
   // The slider stops at the hard bounds; the configured ceiling refuses below them.
   min: bounds.min,
@@ -92,7 +93,9 @@ export function definitionOf(role) {
     case F.SETPOINT:
       return target(SETPOINT);
     case F.DHW_SETPOINT:
-      return target(DHW);
+      // The core's hot water setpoint (whole degrees), never a room thermostat:
+      // "set every thermostat to 21" must not reach the hot water.
+      return target(DHW, C.WATER_HEATER, T.WATER_HEATER.TARGET_TEMPERATURE);
     case F.HUMIDITY:
       return sensor({
         category: C.HUMIDITY_SENSOR,

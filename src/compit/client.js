@@ -11,19 +11,27 @@
 //   - GET /devices/{id}/state: the parameters of a device;
 //   - PUT /devices/{id}/params { values: [{ code, value }] }: a write.
 //
-// Changes from the reference: the client registers under its own name
-// ("Gladys", uid "gladys-compit"), never as another application; the
-// registration is tried once per sign-in (the reference retries without
-// end); 400, 401 and 403 of /authorize, a second 422, or a registration
-// refused end with REFUSED (a final stop the app persists).
+// The bodies of /authorize and /clients are sent as a form
+// (application/x-www-form-urlencoded), as the reference does (aiohttp
+// `data=dict`); the write of /params as JSON (aiohttp `json=`).
 //
-// The token has no documented lifetime: it is renewed by signing in again,
-// never in a loop: a refused token is renewed once, only when it is older
-// than a minute and no other sign-in happened within the minute
-// (`mayLogin`, persisted by the app); a token refused right after a
-// sign-in, or renewed three times without any read going through in
-// between, ends with REFUSED. The e-mail address, the password and the
-// token live in private fields only: never on a property a log could print.
+// Changes from the reference: the client registers under its own name
+// (label "Gladys", a uid of its own per installation, kept in /data), never
+// as another application; the registration is tried once per sign-in (the
+// reference retries without end); 400, 401 and 403 of /authorize, a second
+// 422, or a registration refused end with REFUSED (a final stop the app
+// persists).
+//
+// The token has no documented lifetime. Only a 401 on the main resource
+// (`/gates`) drops it; a 401 on the state of one device, on a fresh read or
+// on a write never does: the app confirms the token on `/gates`
+// (`confirmToken`). A dropped token is renewed by signing in again, never in
+// a loop: once, only when it is older than a minute and no other sign-in
+// happened within the minute (`mayLogin`, persisted by the app); a token
+// refused right after a sign-in, or renewed three times without any read
+// going through in between, ends with REFUSED. The e-mail address, the
+// password and the token live in private fields only: never on a property
+// a log could print.
 // -----------------------------------------------------------------------------
 
 import { COMPIT, LIMITS, TIMINGS } from '../constants.js';
@@ -93,6 +101,7 @@ export class CompitClient {
    * @param {object} options
    * @param {string} options.email
    * @param {string} options.password
+   * @param {string} [options.uid] the uid of this installation (registered on the account)
    * @param {Function} [options.request] the HTTPS transport (tests inject a fake iNext)
    * @param {() => boolean} [options.mayLogin] whether a sign-in may leave now
    * @param {() => Promise<void>} [options.onLogin] called (and awaited) before a sign-in leaves
@@ -100,6 +109,7 @@ export class CompitClient {
   constructor({
     email,
     password,
+    uid = COMPIT.clientUid,
     request = httpsRequest,
     now = Date.now,
     mayLogin = () => true,
@@ -107,6 +117,7 @@ export class CompitClient {
   }) {
     this.#email = email;
     this.#password = password;
+    this.uid = uid;
     this.request = request;
     this.now = now;
     this.mayLogin = mayLogin;
@@ -119,20 +130,37 @@ export class CompitClient {
     this.#token = null;
   }
 
-  /** Whether a token is held (for the commands: they never sign in). */
+  /** Whether a token is held. */
   get hasSession() {
     return this.#token !== null;
   }
 
+  /** Whether a sign-in is under way (a command may join it). */
+  get signingIn() {
+    return this.#login !== null;
+  }
+
   /**
    * One request to the API: `{ data, serverTime }`. `answerBy`, `startBy`:
-   * absolute times; `beforeSend`: the last check, right before the request
-   * leaves; `token`: a token other than the session's (the registration).
+   * absolute times; `beforeSend`: the last check, called once by the
+   * transport when the connection is up, right before the request leaves
+   * (never before: its effects belong to a request that really leaves);
+   * `token`: a token other than the session's (the registration); `form`:
+   * the body sent as a form.
    */
   async exchange(
     method,
     path,
-    { body, answerBy, startBy, beforeSend, auth = true, token: given, ignoreBody = false } = {},
+    {
+      body,
+      form = false,
+      answerBy,
+      startBy,
+      beforeSend,
+      auth = true,
+      token: given,
+      ignoreBody = false,
+    } = {},
   ) {
     if (this.closed) {
       throw new CompitError(CODES.CLOSED);
@@ -142,17 +170,13 @@ export class CompitClient {
     if (timeout <= 0 || (startBy !== undefined && startBy <= now)) {
       throw new CompitError(CODES.LATE);
     }
-    if (beforeSend) {
-      try {
-        beforeSend();
-      } catch (err) {
-        err.beforeSend = true;
-        throw err;
-      }
-    }
     const token = given ?? this.#token;
     if (auth && token === null) {
       throw new CompitError(CODES.NO_SESSION);
+    }
+    let text;
+    if (body !== undefined) {
+      text = form ? formOf(body) : JSON.stringify(body);
     }
     let answer;
     try {
@@ -160,7 +184,8 @@ export class CompitClient {
         method,
         url: `${COMPIT.apiUrl}${path}`,
         headers: auth ? { authorization: token } : {},
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: text,
+        ...(form ? { contentType: 'application/x-www-form-urlencoded' } : {}),
         timeout,
         ...(startBy === undefined ? {} : { sendWithin: startBy - now }),
         maxBytes: LIMITS.responseBytes,
@@ -175,16 +200,13 @@ export class CompitClient {
     if (this.closed) {
       throw new CompitError(CODES.CLOSED, { sent: true });
     }
-    if (answer.status === 401 && auth && given === undefined && this.#token === token) {
-      // This token is refused: the next read signs in again (never in a loop).
-      this.#token = null;
-    }
     if (answer.status < 200 || answer.status > 299) {
       const error = new CompitError(CODES.HTTP, {
         status: answer.status,
         retryAfterMs: retryAfterMs(answer.headers?.['retry-after'], this.now()),
         sent: true,
       });
+      error.token = token;
       if (answer.status === 422 && !auth) {
         // /authorize: the token of the registration is in the body of the 422.
         try {
@@ -196,36 +218,42 @@ export class CompitClient {
       throw error;
     }
     // A write accepted (2xx) is accepted, whatever its body says.
-    const text = ignoreBody ? '' : String(answer.body ?? '');
+    const content = ignoreBody ? '' : String(answer.body ?? '');
     return {
-      data: text.trim() === '' ? null : parseJson(text),
+      data: content.trim() === '' ? null : parseJson(content),
       serverTime: serverTimeOf(answer.headers),
     };
   }
 
-  /** Signs in (one at a time). REFUSED for a refused account; NO_SESSION within the minute. */
-  login() {
+  /**
+   * Signs in (one at a time: a second caller joins the sign-in under way).
+   * REFUSED for a refused account; NO_SESSION within the minute.
+   * `answerBy`: the deadline of each of its requests (a command's budget).
+   */
+  login({ answerBy } = {}) {
     if (!this.#login) {
-      this.#login = this.signIn().finally(() => {
+      this.#login = this.signIn({ answerBy }).finally(() => {
         this.#login = null;
       });
     }
     return this.#login;
   }
 
-  authorize() {
+  authorize(answerBy) {
     return this.exchange('POST', '/authorize', {
       body: {
         email: this.#email,
         password: this.#password,
-        uid: COMPIT.clientUid,
+        uid: this.uid,
         label: COMPIT.clientLabel,
       },
+      form: true,
       auth: false,
+      answerBy,
     });
   }
 
-  async signIn() {
+  async signIn({ answerBy } = {}) {
     if (!this.mayLogin()) {
       throw new CompitError(CODES.NO_SESSION);
     }
@@ -233,15 +261,15 @@ export class CompitClient {
     await this.onLogin();
     let answer;
     try {
-      answer = await this.authorize();
+      answer = await this.authorize(answerBy);
     } catch (err) {
       if (!(err.code === CODES.HTTP && err.status === 422)) {
         throw refusedLogin(err);
       }
       // First sign-in of this client: registered once, then authorized once more.
-      await this.register(err.registration);
+      await this.register(err.registration, answerBy);
       try {
-        answer = await this.authorize();
+        answer = await this.authorize(answerBy);
       } catch (again) {
         if (again.code === CODES.HTTP && again.status === 422) {
           throw new CompitError(CODES.REFUSED, { status: 422, sent: true, reason: 'client' });
@@ -257,15 +285,19 @@ export class CompitClient {
     this.#tokenAt = this.now();
   }
 
-  async register(token) {
+  async register(token, answerBy) {
     if (!validToken(token)) {
       throw new CompitError(CODES.REFUSED, { status: 422, sent: true, reason: 'client' });
     }
     try {
       await this.exchange('POST', '/clients', {
-        body: { fcm_token: null, uid: COMPIT.clientUid, label: COMPIT.clientLabel },
+        // aiohttp drops nothing: the reference sends fcm_token=None; an
+        // empty value here (to check on a real account, see TODO.md).
+        body: { fcm_token: '', uid: this.uid, label: COMPIT.clientLabel },
+        form: true,
         token,
         ignoreBody: true,
+        answerBy,
       });
     } catch (err) {
       if (err.code === CODES.HTTP && [400, 401, 403, 404, 409, 422].includes(err.status)) {
@@ -276,34 +308,47 @@ export class CompitClient {
   }
 
   /**
-   * A read of the polling: signs in when no token is held; a token refused
-   * (401) is renewed once when it is older than the minute, else REFUSED.
-   * `renew: false` (a secondary resource): a 401 or 403 is passed on as is.
+   * The token was refused by the main resource: dropped, then renewed once
+   * when it is older than the minute; else REFUSED (never a loop).
    */
-  async read(path, { renew = true } = {}) {
+  async renew(refused) {
+    if (refused !== undefined && this.#token !== refused) {
+      // Already renewed by someone else meanwhile.
+      if (this.#token === null) {
+        await this.login();
+      }
+      return;
+    }
+    this.#token = null;
+    if (
+      this.now() - this.#tokenAt < TIMINGS.loginFloor ||
+      this.#renewals >= LIMITS.renewalsWithoutRead
+    ) {
+      // Refused right after a sign-in, or renewed again and again without
+      // a single read: the account cannot read this. A stop, not a loop.
+      throw new CompitError(CODES.REFUSED, { status: 401, sent: true, reason: 'token' });
+    }
+    this.#renewals += 1;
+    await this.login();
+  }
+
+  /** The main resource (the gates): signs in when needed, renews a refused token once. */
+  async read(path) {
     if (this.#token === null) {
       await this.login();
     }
     try {
       return this.accepted(await this.exchange('GET', path));
     } catch (err) {
-      if (!renew || !(err.code === CODES.HTTP && err.status === 401)) {
+      if (!(err.code === CODES.HTTP && err.status === 401)) {
         throw err;
       }
-      if (
-        this.now() - this.#tokenAt < TIMINGS.loginFloor ||
-        this.#renewals >= LIMITS.renewalsWithoutRead
-      ) {
-        // Refused right after a sign-in, or renewed again and again without
-        // a single read: the account cannot read this. A stop, not a loop.
-        throw new CompitError(CODES.REFUSED, { status: 401, sent: true, reason: 'token' });
-      }
-      this.#renewals += 1;
-      await this.login();
+      await this.renew(err.token);
       try {
         return this.accepted(await this.exchange('GET', path));
       } catch (again) {
         if (again.code === CODES.HTTP && again.status === 401) {
+          this.#token = null;
           throw new CompitError(CODES.REFUSED, { status: 401, sent: true, reason: 'token' });
         }
         throw again;
@@ -322,12 +367,34 @@ export class CompitClient {
     return this.read('/gates');
   }
 
-  /** The state of one device. A 401/403 here never renews the token (the gates read). */
-  state(deviceId) {
-    return this.read(`/devices/${deviceSegment(deviceId)}/state`, { renew: false });
+  /**
+   * After a 401 on a secondary resource: is the token still good? 'valid'
+   * when `/gates` reads with it, 'renewed' when `/gates` refused it too and
+   * it was renewed; REFUSED, NO_SESSION or any error of `/gates` else.
+   */
+  async confirmToken() {
+    if (this.#token === null) {
+      await this.login();
+      return 'renewed';
+    }
+    try {
+      this.accepted(await this.exchange('GET', '/gates'));
+      return 'valid';
+    } catch (err) {
+      if (!(err.code === CODES.HTTP && err.status === 401)) {
+        throw err;
+      }
+      await this.renew(err.token);
+      return 'renewed';
+    }
   }
 
-  // --- The commands: never a sign-in, deadlines given by the app ------------
+  /** The state of one device. A 401/403 here never drops the token. */
+  state(deviceId) {
+    return this.exchange('GET', `/devices/${deviceSegment(deviceId)}/state`);
+  }
+
+  // --- The commands: deadlines given by the app ------------------------------
 
   /** A fresh read of one device for a command (NO_SESSION without a token). */
   freshState(deviceId, options) {
@@ -344,10 +411,23 @@ export class CompitClient {
   }
 }
 
-/** /authorize refused: a final stop for 400, 401, 403; anything else as it is. */
+/** A form body (application/x-www-form-urlencoded); null and undefined as empty. */
+export function formOf(fields) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(fields)) {
+    params.append(key, value === null || value === undefined ? '' : String(value));
+  }
+  return params.toString();
+}
+
+/**
+ * /authorize refused: a final stop for 400 (the request: its cause cannot be
+ * told), 401 and 403 (the credentials); anything else as it is.
+ */
 function refusedLogin(err) {
   if (err.code === CODES.HTTP && [400, 401, 403].includes(err.status)) {
-    return new CompitError(CODES.REFUSED, { status: err.status, sent: true, reason: 'login' });
+    const reason = err.status === 400 ? 'request' : 'login';
+    return new CompitError(CODES.REFUSED, { status: err.status, sent: true, reason });
   }
   return err;
 }

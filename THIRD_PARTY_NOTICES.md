@@ -12,7 +12,8 @@ Grzywa, as named in its `pyproject.toml`) and contributors. Apache License 2.0
 (`LICENSE` of the repository, version 0.9.2 of 2026-10-02, read at commit
 4acb320). The repository has no `NOTICE` file and its `LICENSE` names no
 copyright holder. The full text of the Apache License 2.0 is the `LICENSE`
-file of this integration (the same text). Its notice:
+file of this integration (the same text). As the reference has no notice of
+its own, this notice was written for this port:
 
 ```
 compit-inext-api, Copyright Przemko92 and contributors
@@ -34,8 +35,10 @@ What was ported, and how it was changed:
 
 - `api.py`: the endpoints of the iNext API (`/authorize`, `/clients`,
   `/gates`, `/devices/{id}/state`, `/devices/{id}/params`) and the shape of
-  their bodies (`src/compit/client.js`). Changed: the client registers under
-  its own name ("Gladys", uid `gladys-compit`) instead of "HomeAssistant";
+  their bodies (`src/compit/client.js`), forms for the sign-in and the
+  registration as the reference sends them. Changed: the client registers
+  under its own name ("Gladys", a uid per installation) instead of
+  "HomeAssistant";
   the registration is tried once per sign-in (the original retries without
   end); a refused account is a final stop; token renewal bounded; answers
   bounded in size and parsed without prototype keys; deadlines on writes.

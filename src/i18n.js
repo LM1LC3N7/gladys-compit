@@ -66,6 +66,10 @@ export const STATUS_TEXTS = {
     'Le régulateur n’a pas joint le cloud iNext depuis plus de 30 min',
   ),
   denied: both('Access to this device refused', 'Accès à cet appareil refusé'),
+  error: both(
+    'Not read: iNext failed for this device (values not updated)',
+    'Non lu : iNext a échoué pour cet appareil (valeurs non mises à jour)',
+  ),
   offline: both('Compit iNext unreachable', 'Compit iNext injoignable'),
   gone: both('Device not found on the account', 'Appareil introuvable sur le compte'),
   unknown: both('State not read', 'État non lu'),
@@ -105,6 +109,10 @@ const REFUSALS = {
   client: both(
     'Compit did not accept the registration of Gladys on the account.',
     'Compit n’a pas accepté l’enregistrement de Gladys sur le compte.',
+  ),
+  request: both(
+    'Compit refused the sign-in request (HTTP 400).',
+    'Compit a refusé la requête de connexion (HTTP 400).',
   ),
 };
 
@@ -146,8 +154,13 @@ export const T = {
     ),
   denied: (count) =>
     both(` Access refused to ${count} device(s).`, ` Accès refusé à ${count} appareil(s).`),
+  notRead: (count) => both(` ${count} device(s) not read.`, ` ${count} appareil(s) non lu(s).`),
   test: {
-    cooldown: both('Tested less than 10 s ago.', 'Testé il y a moins de 10 s.'),
+    next: (wait) =>
+      both(
+        `Read less than one interval ago: next read possible in ${wait.en}.`,
+        `Lu il y a moins d’un intervalle : prochaine lecture possible dans ${wait.fr}.`,
+      ),
   },
   join,
 };
@@ -164,11 +177,15 @@ export const ERRORS = {
     'Les commandes de consigne d’eau chaude sont désactivées : autorisez-les dans la configuration de l’intégration.',
   ),
   seasonsDisabled: both(
-    'Season changes are off (only "Summer" is always allowed): allow them in the configuration of the integration.',
-    'Les changements de saison sont désactivés (seul « Été » est toujours permis) : autorisez-les dans la configuration de l’intégration.',
+    '"Winter" is off ("Summer" needs no option): allow the season changes in the configuration of the integration.',
+    '« Hiver » est désactivé (« Été » n’a pas besoin d’option) : autorisez les changements de saison dans la configuration de l’intégration.',
   ),
   badNumber: both('Not a temperature.', 'Ce n’est pas une température.'),
   badStep: both('Use steps of 0.1 °C.', 'Utilisez des pas de 0,1 °C.'),
+  badWhole: both(
+    'Use whole degrees for hot water.',
+    'Utilisez des degrés entiers pour l’eau chaude.',
+  ),
   outOfRange: (min, max) =>
     both(
       `Setpoint refused: from ${min} to ${max} °C only.`,
@@ -203,10 +220,40 @@ export const ERRORS = {
     'This device is not known now: command not sent.',
     'Cet appareil n’est pas connu pour l’instant : commande non envoyée.',
   ),
-  noSession: both(
-    'Signing in to Compit again: command not sent, try again in a minute.',
-    'Reconnexion à Compit en cours : commande non envoyée, réessayez dans une minute.',
+  noAccount: both(
+    'No account configured, or the account changed meanwhile: command not sent.',
+    'Aucun compte configuré, ou le compte a changé entre-temps : commande non envoyée.',
   ),
+  unknownType: both(
+    'The type of this device is unknown (never listed by iNext) or it has no season: command not sent.',
+    'Le type de cet appareil est inconnu (jamais listé par iNext) ou il n’a pas de saison : commande non envoyée.',
+  ),
+  lastReadFailed: both(
+    'The last read of iNext failed: command not sent, try again after the next read.',
+    'La dernière lecture d’iNext a échoué : commande non envoyée, réessayez après la prochaine lecture.',
+  ),
+  notReadYet: both(
+    'iNext has not been read yet: command not sent.',
+    'iNext n’a pas encore été lu : commande non envoyée.',
+  ),
+  signingIn: both(
+    'Signing in to Compit: command not sent, try again in a moment.',
+    'Connexion à Compit en cours : commande non envoyée, réessayez dans un instant.',
+  ),
+  noSession: both(
+    'No session with Compit now: command not sent, try again after the next read.',
+    'Pas de session avec Compit pour l’instant : commande non envoyée, réessayez après la prochaine lecture.',
+  ),
+  loginFloor: (wait) =>
+    both(
+      `No session, and a sign-in left less than a minute ago: command not sent, try again in ${wait.en}.`,
+      `Pas de session, et une connexion est partie il y a moins d’une minute : commande non envoyée, réessayez dans ${wait.fr}.`,
+    ),
+  deviceDenied: (status) =>
+    both(
+      `iNext refused to read this device (HTTP ${status}): command not sent.`,
+      `iNext a refusé la lecture de cet appareil (HTTP ${status}) : commande non envoyée.`,
+    ),
   tooSlow: both(
     'Compit answers too slowly: command not sent.',
     'Compit répond trop lentement : commande non envoyée.',

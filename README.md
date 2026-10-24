@@ -20,14 +20,17 @@ User guides: [English](docs/en.md), [français](docs/fr.md).
   temperatures, humidity, fuel level, heating season, alarms, status.
 - **Commands, each behind its own option, off by default**: the manual room
   setpoint (5 °C to a ceiling of 24 °C by default, 30 °C at most), the hot
-  water setpoint (20 °C to a ceiling of 55 °C by default, 60 °C at most), the
+  water setpoint (a water heater in whole degrees, 20 °C to a ceiling of
+  55 °C by default, 60 °C at most), the
   season "Winter". Always within the bounds the controller gives. Decided on
   a fresh read, checked again right before the request leaves, refused after
   3.5 s, "sent, without confirmation" when the answer is missing.
-- **"Summer" (heating off) is the protective command**: never behind the
-  option nor a 429/5xx pause, written without a read, it cancels a command
-  of the device not sent yet; sticky (written again 3 times at most) after a
-  "Winter" that left just before.
+- **"Summer" (heating and cooling of the whole installation off) is the
+  protective command**: no option, written without a read, one try during a
+  429/5xx pause, signs in by itself when needed, waits only for the
+  departure of a previous write, cancels a command of the device not sent
+  yet; sticky (written again 3 times at most) after another write that left
+  just before. Its refusal cases are listed in the guides.
 - **No switch, no writable binary**: a "turn everything off" never reaches the
   heating.
 - **Account refused** (credentials, a fresh token, the registration of the
@@ -36,8 +39,8 @@ User guides: [English](docs/en.md), [français](docs/fr.md).
   lifts it. Never two sign-ins within a minute. 429/5xx: a bounded pause kept
   in `/data`. Nothing secret in logs, statuses or `/data`.
 - On its first sign-in the integration registers itself as a client of the
-  account under its own name ("Gladys", uid `gladys-compit`), as the iNext
-  portal asks. No application key, no app identity, no User-Agent of an app.
+  account under its own name ("Gladys", a uid of its own per installation),
+  as the Home Assistant library does. No application key, no app identity, no User-Agent of an app.
 
 ## Credits
 

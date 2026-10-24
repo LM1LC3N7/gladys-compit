@@ -20,7 +20,8 @@ const transportError = (sent) => new CompitError(CODES.UNREACHABLE, { sent });
  * @param {'GET' | 'POST' | 'PUT'} options.method
  * @param {string} options.url an https:// address
  * @param {Record<string, string>} [options.headers]
- * @param {string} [options.body] a JSON text
+ * @param {string} [options.body] a JSON or form text
+ * @param {string} [options.contentType] its type (JSON by default)
  * @param {number} options.timeout ms for the whole exchange
  * @param {number} [options.sendWithin] ms to have the connection up, else not sent
  * @param {number} options.maxBytes body size cap
@@ -37,6 +38,7 @@ export function httpsRequest({
   sendWithin,
   maxBytes,
   beforeSend,
+  contentType = 'application/json',
 }) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -108,7 +110,7 @@ export function httpsRequest({
           accept: 'application/json',
           connection: 'close',
           ...(payload
-            ? { 'content-type': 'application/json', 'content-length': String(payload.length) }
+            ? { 'content-type': contentType, 'content-length': String(payload.length) }
             : {}),
           ...headers,
         },

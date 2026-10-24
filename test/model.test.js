@@ -19,7 +19,13 @@ import {
   seasonOf,
   stateOf,
 } from '../src/model.js';
-import { fingerprint, normalizeMemory, serializeMemory } from '../src/store.js';
+import {
+  fingerprint,
+  newUid,
+  normalizeMemory,
+  refusalPrint,
+  serializeMemory,
+} from '../src/store.js';
 
 test('gates: shape checked, ids and types integers, bounded, a device kept once', () => {
   const gates = gatesOf({
@@ -138,6 +144,8 @@ test('the catalog: every role has a definition, codes are safe, the thermostats 
     ]);
   }
   assert.equal(parameterOf(FEATURES.SEASON, 224), undefined, 'R 900: values not documented');
+  assert.equal(parameterOf(FEATURES.SETPOINT, 7), undefined, 'Nano One: read only (R)');
+  assert.equal(parameterOf(FEATURES.ROOM_TARGET, 7), '__tzadman');
   assert.equal(parameterOf('__proto__', 1), undefined);
   assert.equal(parameterOf(FEATURES.SETPOINT, 'constructor'), undefined);
   assert.equal(modelOf(223), 'Compit Nano Color 2');
@@ -195,4 +203,30 @@ test('/data: never a secret, bounded on reload, the fingerprint only while refus
   const fp = fingerprint(memory.salt, 'jan@example.com\nsecret');
   assert.match(fp, /^[0-9a-f]{32}$/);
   assert.notEqual(fp, fingerprint(normalizeMemory(null, now).salt, 'jan@example.com\nsecret'));
+});
+
+test('/data: the uid of the installation, the last read, the print of a refusal', () => {
+  const now = Date.UTC(2026, 9, 24);
+  const uid = newUid();
+  assert.match(uid, /^gladys-compit-[0-9a-f]{16}$/);
+  const memory = normalizeMemory({ uid, lastReadAt: now + 5000 }, now);
+  assert.equal(memory.uid, uid);
+  assert.equal(memory.lastReadAt, now, 'a time ahead of the clock counts as now');
+  assert.equal(normalizeMemory({ uid: 'HomeAssistant' }, now).uid, '');
+  const salt = memory.salt;
+  assert.equal(refusalPrint(salt, 'login', 'a@b.c', 'pw'), fingerprint(salt, 'a@b.c\npw'));
+  for (const reason of ['token', 'client', 'request']) {
+    assert.equal(refusalPrint(salt, reason, 'a@b.c', 'pw'), fingerprint(salt, 'a@b.c\n'));
+  }
+  assert.deepEqual(Object.keys(serializeMemory(memory)).sort(), [
+    'fp',
+    'lastLoginAt',
+    'lastReadAt',
+    'pausedUntil',
+    'reason',
+    'refused',
+    'salt',
+    'stops',
+    'uid',
+  ]);
 });

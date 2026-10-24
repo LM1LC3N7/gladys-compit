@@ -89,7 +89,17 @@ async function setup(
     await advance(wait, 50);
     return ack;
   };
-  return { gladys, app, compit, advance, logs, command, store };
+  /** A command left running: { ack } once answered. */
+  const fire = (id, role, value) => {
+    const d = gladys.fake.devices.find((x) => x.external_id === device(id));
+    const target = d.features.find((f) => f.external_id === feature(id, role)) ?? {
+      external_id: feature(id, role),
+    };
+    const box = {};
+    gladys.fake.setValue(d, target, value).then((ack) => (box.ack = ack));
+    return box;
+  };
+  return { gladys, app, compit, advance, logs, command, fire, store };
 }
 
 const recorder = (logs) =>
@@ -149,9 +159,11 @@ test('registers Gladys once under its own name, signs in, lists and reads the de
   );
   const [first, register] = compit.requests;
   assert.deepEqual(Object.keys(first.body).sort(), ['email', 'label', 'password', 'uid']);
-  assert.equal(first.body.uid, 'gladys-compit');
+  assert.match(first.body.uid, /^gladys-compit-[0-9a-f]{16}$/, 'a uid of this installation');
+  assert.equal(store.data.uid, first.body.uid, 'kept in /data');
+  assert.ok(first.form && register.form, 'forms, as the reference sends them');
   assert.equal(first.body.label, 'Gladys');
-  assert.deepEqual(register.body, { fcm_token: null, uid: 'gladys-compit', label: 'Gladys' });
+  assert.deepEqual(register.body, { fcm_token: '', uid: first.body.uid, label: 'Gladys' });
   assert.equal(register.auth, 'registration-token');
   assert.equal(compit.requests[3].auth, 'token-1', 'the token as is, as the reference sends it');
   assert.ok(
@@ -347,7 +359,7 @@ test('HTTP 429 pauses every path, persisted, and a reconnection keeps the pause'
   });
   // Scan: the gates are read at the next poll.
   await app.scan();
-  await advance(2 * MINUTE, SECOND);
+  await advance(POLL, SECOND);
   assert.ok(store.data.pausedUntil > Date.now() + 8 * MINUTE);
   assert.match(message(gladys).en, /paused/);
   const count = compit.requests.length;
@@ -377,7 +389,7 @@ test('an unreachable iNext backs off, never sooner than the interval', async (t)
   const compit = fakeCompit({ registered: true });
   const { advance, gladys } = await setup(t, { compit });
   compit.failNext(() => true, { drop: true, times: 3 });
-  await advance(2 * MINUTE, SECOND);
+  await advance(POLL, SECOND);
   assert.match(message(gladys).en, /unreachable/);
   const count = compit.requests.length;
   await advance(MINUTE + 50 * SECOND, SECOND);
@@ -387,6 +399,7 @@ test('an unreachable iNext backs off, never sooner than the interval', async (t)
 test('a controller silent for over 30 min: values kept, status says so, commands refused', async (t) => {
   const compit = fakeCompit({ registered: true });
   compit.states[THERMOSTAT].last_connected_at = new Date(NOW - 2 * HOUR).toISOString();
+  compit.offline.add(THERMOSTAT);
   const { gladys, command } = await setup(t, { compit, config: SETPOINTS });
   assert.match(last(gladys, THERMOSTAT, 'status'), /plus de 30 min/);
   assert.equal(last(gladys, THERMOSTAT, 'setpoint'), undefined, 'no stale value published');
@@ -471,15 +484,15 @@ test('a refused write is "refused", a 5xx write "sent, without confirmation"', a
   refused(await command(THERMOSTAT, 'setpoint', 22), /sans confirmation/);
 });
 
-test('no sign-in inside a command: a refused token gives "try again", the poll renews it', async (t) => {
+test('no sign-in inside a setpoint command: a 401 refuses it, the next poll checks the token', async (t) => {
   const compit = fakeCompit({ registered: true });
   const { command, advance } = await setup(t, { compit, config: SETPOINTS });
   await advance(90 * SECOND, SECOND);
   compit.revokeTokens();
-  refused(await command(THERMOSTAT, 'setpoint', 22), /réessayez dans une minute/);
+  refused(await command(THERMOSTAT, 'setpoint', 22), /a refusé la lecture de cet appareil/);
   assert.equal(logins(compit), 1);
   assert.equal(compit.writes().length, 0);
-  await advance(2 * MINUTE, SECOND);
+  await advance(POLL, SECOND);
   assert.equal(logins(compit), 2);
   ok(await command(THERMOSTAT, 'setpoint', 22));
 });
@@ -513,7 +526,7 @@ test('hot water: off by default, 55 °C by default, never above 60 °C, within t
 test('season: "Winter" behind the option, "Cooling" refused, "Summer" always allowed', async (t) => {
   const compit = fakeCompit({ registered: true });
   const { command, advance, gladys } = await setup(t, { compit });
-  refused(await command(THERMOSTAT, 'season', 'winter'), /saison sont désactivés/);
+  refused(await command(THERMOSTAT, 'season', 'winter'), /« Hiver » est désactivé/);
   refused(await command(THERMOSTAT, 'season', 'bogus'), /Saison inconnue/);
   ok(await command(THERMOSTAT, 'season', 'summer'));
   assert.deepEqual(compit.writes()[0].body, {
@@ -534,7 +547,7 @@ test('"Summer" goes through a 429 pause (one try) and other commands do not', as
   });
   compit.failNext((r) => r.path === '/gates' || r.path.endsWith('/state'), { status: 503 });
   await app.scan();
-  await advance(2 * MINUTE, SECOND);
+  await advance(POLL, SECOND);
   assert.ok(store.data.pausedUntil > Date.now());
   refused(await command(THERMOSTAT, 'setpoint', 22), /en pause/);
   ok(await command(THERMOSTAT, 'season', 'summer'));
@@ -642,4 +655,262 @@ test('a sticky "Summer" kept in /data goes on after a restart', async (t) => {
   });
   await advance(3 * MINUTE, SECOND);
   assert.equal(store.data.stops.length, 0, 'lifted by time');
+});
+
+// --- Review r1 scenarios ------------------------------------------------------
+
+const stateReads = (compit, id) =>
+  compit.requests.filter((r) => r.path === `/devices/${id}/state`).length;
+const values = (compit) => compit.writes().map((w) => w.body.values[0].value);
+
+test('S1a: a permanent 401 on one device: no new sign-in, that device only refused', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, gladys } = await setup(t, { compit });
+  compit.failNext((r) => r.path === `/devices/${BOILER}/state`, { status: 401, times: 1000 });
+  await advance(HOUR, SECOND);
+  assert.equal(logins(compit), 1);
+  assert.equal(last(gladys, BOILER, 'status'), 'Accès à cet appareil refusé');
+  assert.equal(last(gladys, THERMOSTAT, 'status'), 'OK');
+});
+
+test('S1d: a 401 on two devices: the third one is still read and published', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, gladys } = await setup(t, { compit });
+  compit.failNext(
+    (r) => r.path === `/devices/${THERMOSTAT}/state` || r.path === `/devices/${BOILER}/state`,
+    { status: 401, times: 1000 },
+  );
+  compit.set(MIXER, '__rr_t_mie', 40);
+  await advance(POLL, SECOND);
+  assert.equal(last(gladys, MIXER, 'mixer-temperature'), 40);
+  assert.equal(last(gladys, MIXER, 'status'), 'OK');
+  assert.equal(logins(compit), 1);
+  assert.match(message(gladys).en, /Access refused to 2 device/);
+});
+
+test('S9: an expired token while the gates are cached: renewed, no device wrongly refused', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, gladys } = await setup(t, { compit });
+  await advance(90 * SECOND, SECOND);
+  compit.revokeTokens();
+  compit.set(THERMOSTAT, '__tpokojowa', 19.5);
+  await advance(POLL, SECOND);
+  assert.equal(logins(compit), 2);
+  assert.equal(last(gladys, THERMOSTAT, 'status'), 'OK');
+  assert.equal(last(gladys, THERMOSTAT, 'room-temperature'), 19.5);
+});
+
+test('S1b: "Summer" right after a 401 on another device: the token kept, sent', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, command } = await setup(t, { compit });
+  compit.failNext((r) => r.path === `/devices/${MIXER}/state`, { status: 401, times: 100 });
+  await advance(POLL, SECOND);
+  ok(await command(THERMOSTAT, 'season', 'summer', { wait: 4 * SECOND }));
+  assert.deepEqual(values(compit), [1]);
+});
+
+test('S1c: a 401 on the fresh read of a setpoint, then "Summer": sent', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, command } = await setup(t, { compit, config: SETPOINTS });
+  await advance(30 * SECOND, SECOND);
+  compit.failNext((r) => r.path === `/devices/${THERMOSTAT}/state`, { status: 401 });
+  refused(await command(THERMOSTAT, 'setpoint', 22, { wait: 4 * SECOND }), /HTTP 401/);
+  ok(await command(THERMOSTAT, 'season', 'summer', { wait: 4 * SECOND }));
+  assert.deepEqual(values(compit), [1]);
+});
+
+test('S5: "Summer" on an expired token: the gates refuse it too, renewed, written once more', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, command } = await setup(t, { compit });
+  await advance(90 * SECOND, SECOND);
+  compit.revokeTokens();
+  ok(await command(THERMOSTAT, 'season', 'summer', { wait: 4 * SECOND }));
+  assert.equal(logins(compit), 2);
+  assert.equal(compit.value(THERMOSTAT, '__trybpracyinstalacji'), 1);
+  const writes = compit.writes();
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1].auth, 'token-2');
+});
+
+test('S3: a restart during a persisted 429 pause: "Summer" signs in by itself (one try)', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const store = memoryStore({ pausedUntil: NOW + 3 * HOUR, lastLoginAt: NOW - HOUR });
+  const { gladys, command } = await setup(t, { compit, store, create: false });
+  assert.equal(compit.requests.length, 0, 'no read during the pause');
+  await gladys.fake.deviceCreated({
+    external_id: device(THERMOSTAT),
+    name: 'Salon',
+    params: [{ name: 'type', value: '223' }],
+    features: [{ external_id: feature(THERMOSTAT, 'season'), category: 'text', type: 'select' }],
+  });
+  ok(await command(THERMOSTAT, 'season', 'summer', { wait: 4 * SECOND }));
+  assert.deepEqual(
+    compit.requests.map((r) => `${r.method} ${r.path}`),
+    ['POST /authorize', `PUT /devices/${THERMOSTAT}/params`],
+  );
+  assert.ok(store.data.pausedUntil > Date.now(), 'the pause holds for the reads');
+});
+
+test('"Summer" without a session: the true cause (minute between sign-ins, refused account)', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const store = memoryStore({ pausedUntil: NOW + 3 * HOUR, lastLoginAt: NOW - 10 * SECOND });
+  const { gladys, command } = await setup(t, { compit, store, create: false });
+  await gladys.fake.deviceCreated({
+    external_id: device(THERMOSTAT),
+    params: [{ name: 'type', value: '223' }],
+    features: [{ external_id: feature(THERMOSTAT, 'season'), category: 'text', type: 'select' }],
+  });
+  refused(await command(THERMOSTAT, 'season', 'summer'), /il y a moins d’une minute/);
+  assert.equal(compit.requests.length, 0);
+
+  const refusedStore = memoryStore({ refused: true, fp: '', reason: 'login' });
+  const other = fakeCompit({ registered: true });
+  const second = await setup(t, { compit: other, store: refusedStore, create: false });
+  await second.gladys.fake.deviceCreated({
+    external_id: device(THERMOSTAT),
+    params: [{ name: 'type', value: '223' }],
+    features: [{ external_id: feature(THERMOSTAT, 'season'), category: 'text', type: 'select' }],
+  });
+  refused(await second.command(THERMOSTAT, 'season', 'summer'), /compte a été refusé/);
+  assert.equal(other.requests.length, 0);
+});
+
+test('S2: a slow answer to "Winter" never delays "Summer": sent at once, sticky', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  compit.set(THERMOSTAT, '__trybpracyinstalacji', 1);
+  const store = memoryStore();
+  const { advance, fire } = await setup(t, { compit, config: SEASONS, store });
+  compit.failNext((r) => r.method === 'PUT', { delay: 4000 });
+  const winter = fire(THERMOSTAT, 'season', 'winter');
+  await advance(700, 50);
+  const summer = fire(THERMOSTAT, 'season', 'summer');
+  await advance(6 * SECOND, 50);
+  ok(summer.ack);
+  assert.deepEqual(values(compit).slice(0, 2), [0, 1], '"Summer" right after "Winter" left');
+  assert.equal(store.data.stops.length, 1, 'sticky: the slow "Winter" may land after it');
+  await advance(25 * SECOND, SECOND);
+  assert.equal(compit.value(THERMOSTAT, '__trybpracyinstalacji'), 1);
+  assert.ok(winter.ack);
+});
+
+test('S4: a token refused after a good sign-in: no print of the password in /data', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  compit.failNext((r) => r.path === '/gates', { status: 401 });
+  const store = memoryStore();
+  await setup(t, { compit, store });
+  assert.equal(store.data.reason, 'token');
+  const { fingerprint } = await import('../src/store.js');
+  assert.notEqual(store.data.fp, fingerprint(store.data.salt, `${EMAIL}\n${PASSWORD}`));
+  assert.equal(store.data.fp, fingerprint(store.data.salt, `${EMAIL}\n`), 'the e-mail only');
+});
+
+test('S6: a 5xx on one device: the others read and published, no global pause', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, gladys, store } = await setup(t, { compit });
+  compit.failNext((r) => r.path === `/devices/${MIXER}/state`, { status: 500, times: 1000 });
+  compit.set(THERMOSTAT, '__tpokojowa', 19);
+  await advance(POLL, SECOND);
+  assert.equal(last(gladys, THERMOSTAT, 'room-temperature'), 19);
+  assert.match(last(gladys, MIXER, 'status'), /Non lu/);
+  assert.equal(store.data.pausedUntil, 0);
+  assert.match(message(gladys).en, /1 device\(s\) not read/);
+  const tries = stateReads(compit, MIXER);
+  await advance(30 * MINUTE, SECOND);
+  assert.ok(stateReads(compit, MIXER) - tries <= 4, 'spaced, doubled');
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+});
+
+test('S6b: a malformed state for one device: that device only', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, gladys } = await setup(t, { compit });
+  compit.states[MIXER] = { errors: [], nope: true };
+  compit.set(THERMOSTAT, '__tpokojowa', 19);
+  await advance(POLL, SECOND);
+  assert.equal(last(gladys, THERMOSTAT, 'room-temperature'), 19);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+});
+
+test('every device failing is the account: a 5xx pause', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, gladys, store } = await setup(t, { compit });
+  compit.failNext((r) => r.path.endsWith('/state'), { status: 503, times: 3 });
+  await advance(POLL, SECOND);
+  assert.ok(store.data.pausedUntil > Date.now());
+  assert.match(message(gladys).en, /paused/);
+});
+
+test('S7: the button never reads sooner than the interval', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, gladys } = await setup(t, { compit });
+  const before = stateReads(compit, THERMOSTAT);
+  let answer;
+  for (let i = 0; i < 5; i += 1) {
+    const pending = gladys.fake.action(ACTIONS.TEST_CONNECTION);
+    await advance(11 * SECOND, 100);
+    answer = await pending;
+  }
+  assert.equal(stateReads(compit, THERMOSTAT) - before, 0);
+  assert.match(answer.data.message.fr, /prochaine lecture possible dans/);
+  await advance(70 * SECOND, SECOND);
+  const pending = gladys.fake.action(ACTIONS.TEST_CONNECTION);
+  await advance(2 * SECOND, 50);
+  await pending;
+  assert.equal(stateReads(compit, THERMOSTAT) - before, 1);
+});
+
+test('S10: "Summer" every 5 s: follow-ups read the commanded device only, grouped', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, fire } = await setup(t, { compit });
+  const others = stateReads(compit, BOILER) + stateReads(compit, MIXER);
+  const thermostat = stateReads(compit, THERMOSTAT);
+  for (let i = 0; i < 12; i += 1) {
+    fire(THERMOSTAT, 'season', 'summer');
+    await advance(5 * SECOND, 100);
+  }
+  assert.equal(stateReads(compit, BOILER) + stateReads(compit, MIXER) - others, 0);
+  assert.ok(stateReads(compit, THERMOSTAT) - thermostat <= 13);
+});
+
+test('a restart never reads sooner than the interval after the last read', async (t) => {
+  const store = memoryStore();
+  const compit = fakeCompit({ registered: true });
+  const first = await setup(t, { compit, store });
+  first.app.stop();
+  const again = fakeCompit({ registered: true });
+  await setup(t, { compit: again, store, create: false });
+  assert.equal(again.requests.length, 0);
+  await first.advance(POLL, SECOND);
+  assert.ok(again.requests.length > 0);
+});
+
+test('hot water is a water heater setpoint in whole degrees, never a room thermostat', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { gladys, command } = await setup(t, { compit, config: DHW });
+  const boiler = gladys.fake.discoveredDevices.find((d) => d.external_id === device(BOILER));
+  const f = boiler.features.find((x) => x.external_id === feature(BOILER, 'dhw-setpoint'));
+  assert.deepEqual([f.category, f.type, f.unit], ['water-heater', 'target-temperature', 'celsius']);
+  refused(await command(BOILER, 'dhw-setpoint', 50.5), /degrés entiers/);
+  assert.equal(compit.writes().length, 0);
+});
+
+test('a non-protective command after a failed read says so', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, command } = await setup(t, { compit, config: SETPOINTS });
+  compit.failNext(() => true, { drop: true, times: 3 });
+  await advance(POLL, SECOND);
+  refused(await command(THERMOSTAT, 'setpoint', 22), /dernière lecture d’iNext a échoué/);
+});
+
+test('a "Winter" that never left keeps the sticky "Summer" (effects only on departure)', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  compit.set(THERMOSTAT, '__trybpracyinstalacji', 1);
+  const store = memoryStore();
+  const { command, advance } = await setup(t, { compit, config: SEASONS, store });
+  ok(await command(THERMOSTAT, 'season', 'winter', { wait: SECOND }));
+  ok(await command(THERMOSTAT, 'season', 'summer', { wait: SECOND }));
+  assert.equal(store.data.stops.length, 1);
+  await advance(3 * SECOND, SECOND);
+  compit.failNext((r) => r.method === 'PUT', { connectDelay: 5000 });
+  refused(await command(THERMOSTAT, 'season', 'winter', { wait: 5 * SECOND }), /lentement/);
+  assert.equal(store.data.stops.length, 1, 'never lifted by a write that did not leave');
 });

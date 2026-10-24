@@ -4,24 +4,34 @@
 // interval, one Gladys device per Compit device and its states, the
 // transport badge, the "Test the connection" button, and three commands
 // (the room setpoint, the hot water setpoint, the heating season), each
-// refused unless its own option allows it, except "Summer" (heating off),
-// the protective choice. index.js only wires the SDK handlers.
+// refused unless its own option allows it, except "Summer" (the heating and
+// the cooling of the installation off), the protective choice. index.js only
+// wires the SDK handlers.
 //
 // Failures (lessons of the previous waves):
 //   - account refused (wrong e-mail or password, a token refused right
-//     after a sign-in, the registration of Gladys not accepted): a final
-//     stop persisted in /data, never an automatic retry; saving other
-//     credentials, or "Test the connection" (one try, at most one sign-in
-//     a minute), tries again, and only a success lifts the stop;
-//   - the token (no documented lifetime) is renewed by signing in again,
-//     once, when iNext refuses it; never two sign-ins within a minute, even
-//     across a restart (the time of the last one is kept in /data);
-//   - a 401/403 on the state of one device while the gates read: that
-//     device "access refused", read again after 15 min, doubled up to 1 h;
-//     never a new sign-in for it;
-//   - HTTP 429 or 5xx: a pause of 1 min to 6 h, persisted in /data, applied
-//     to every path (polls, the button, the commands except "Summer");
-//   - anything else: 1, 2, 5, 10 min, never sooner than the interval;
+//     after a sign-in, the registration of Gladys not accepted, a sign-in
+//     request refused): a final stop persisted in /data, never an automatic
+//     retry; saving other credentials, or "Test the connection" (one try,
+//     never sooner than the interval), tries again, and only a success
+//     lifts the stop;
+//   - the token (no documented lifetime) is dropped only when the gates
+//     refuse it (401), then renewed by signing in again, once; never two
+//     sign-ins within a minute, even across a restart (the time of the last
+//     one is kept in /data);
+//   - a 401 on the state of one device: the token is confirmed on the gates
+//     (one request); if the gates read with it, that device only is
+//     "access refused" (also on 403), read again after 15 min, doubled up
+//     to 1 h, never a new sign-in for it;
+//   - a 5xx, a timeout or a bad answer on the state of one device: that
+//     device only is "not read", spaced (one interval, doubled up to 1 h);
+//     the other values of the read are kept. Only an HTTP 429, a failure of
+//     the gates or of every device stops the whole read: 429/5xx a pause of
+//     1 min to 6 h persisted in /data, applied to every path (except
+//     "Summer": one try); anything else 1, 2, 5, 10 min, never sooner than
+//     the interval;
+//   - the time of the last read is kept in /data (before it leaves, at most
+//     once a minute): a restart never reads sooner than the interval;
 //   - a reconnection to Gladys clears none of them.
 //
 // The commands (rules learnt on the previous modules):
@@ -31,23 +41,28 @@
 //     30 min; options and ceilings checked on arrival, after the fresh read
 //     and right before the request leaves (beforeSend); sent within 3.5 s
 //     of the click or refused unsent; one at a time per device; never
-//     retried; never a sign-in inside a command;
-//   - "Summer" (heating off): never behind the option, nor the pause, nor
-//     another command of the device (it waits only for a write already
-//     leaving, and cancels a command not sent yet); written without a fresh
-//     read (writing "Summer" when it already is changes nothing); after a
-//     "Winter" that left shortly before, its guard is sticky: the follow-up
-//     reads write "Summer" again (3 times at most) if they show otherwise;
+//     retried; never a sign-in inside them;
+//   - "Summer": no option; it waits only for the departure of a write of
+//     the device already leaving (never its answer), cancels a command of
+//     the device not sent yet, is written without a fresh read, signs in by
+//     itself when no token is held (or when its write gets a 401 and the
+//     gates refuse the token too), once, within its budget, also during a
+//     pause; after a write of the device that left before it, its guard is
+//     sticky: the follow-up reads write "Summer" again (3 times at most) if
+//     they show otherwise. Its refusal cases are listed in the docs;
 //   - a write that may have reached iNext (silence, a dropped connection, a
 //     5xx) is never answered "not sent": "sent, without confirmation", then
-//     spaced reads; the ack never waits for a publication to Gladys.
+//     follow-up reads of the commanded devices only (grouped); the ack never
+//     waits for a publication to Gladys.
 // -----------------------------------------------------------------------------
 
 import { DEVICE_TRANSPORTS, createLogger } from '@gladysassistant/integration-sdk';
-import { accountSecret, connectionKey, normalizeConfig, numberOf } from './config.js';
+import { connectionKey, normalizeConfig, numberOf } from './config.js';
 import {
   DHW,
   FEATURES as F,
+  HOUR,
+  MINUTE,
   PROTECTIVE_SEASON,
   SEASONS,
   SECOND,
@@ -70,10 +85,19 @@ import { devicesOf, gatesOf, isStale, seasonOf, stateOf } from './model.js';
 import { CompitClient } from './compit/client.js';
 import { CODES, CompitError, isAuthRefused, isBusy, reasonOf } from './compit/errors.js';
 import { StatePublisher } from './publisher.js';
-import { fingerprint, memoryStore, normalizeMemory, serializeMemory, stopsOf } from './store.js';
+import {
+  memoryStore,
+  newUid,
+  normalizeMemory,
+  refusalPrint,
+  serializeMemory,
+  stopsOf,
+} from './store.js';
 
 /** Two temperatures (or season values) the API gives back as equal. */
 const same = (a, b) => a !== undefined && b !== undefined && Math.abs(a - b) < 0.05;
+
+const isHttp = (err, ...statuses) => err?.code === CODES.HTTP && statuses.includes(err.status);
 
 const ROLE_OPTION = {
   [F.SETPOINT]: 'allowSetpoints',
@@ -120,18 +144,21 @@ export class CompitApp {
     this.lastStatus = undefined;
     this.published = undefined;
     this.badge = undefined;
-    this.lastTestAt = -Infinity;
+    /** When the last read of the polling began (monotonic), for the button. */
+    this.lastAttemptAt = -Infinity;
     /** deviceId -> the non-protective command in flight (one at a time per device). */
     this.inFlight = new Map();
     /** deviceId -> no new non-protective command before this time: a write left just before. */
     this.quietUntil = new Map();
-    /** deviceId -> the write leaving now (any kind): "Summer" waits for it, never more. */
+    /** deviceId -> the write of the device not answered yet (any kind). */
     this.writing = new Map();
+    /** deviceId -> resolves when that write leaves (or ends): "Summer" waits for this only. */
+    this.departures = new Map();
     /** deviceId -> counts the "Summer" commands: a command begun before one is not sent. */
     this.stopEpoch = new Map();
-    /** deviceId -> when the last "Winter" or "Cooling" write left (its beforeSend). */
-    this.lastStartAt = new Map();
-    /** `${deviceId}:${role}` -> { from, expected, moved, until, sticky, resends }. */
+    /** deviceId -> when the last write of the device left (its beforeSend), any kind. */
+    this.lastWriteAt = new Map();
+    /** `${deviceId}:${role}` -> { from, expected, moved, until, sticky, resends, at }. */
     this.guards = new Map();
     /** Increases at every write that may have left: a read begun before it is dropped. */
     this.writes = 0;
@@ -144,6 +171,7 @@ export class CompitApp {
       client: new CompitClient({
         email: config.email,
         password: config.password,
+        uid: this.memory.uid,
         now: this.now,
         mayLogin: () => this.mayLogin(),
         onLogin: () => this.loggedIn(),
@@ -152,12 +180,16 @@ export class CompitApp {
       /** The gates of the account (src/model.js gatesOf), and when they were listed. */
       gates: undefined,
       gatesAt: -Infinity,
+      /** Read the gates first at the next read (a 401 met by a command). */
+      recheck: false,
       /** deviceId -> { id, label, type, gateId, gateLabel } of the gate list. */
       devices: new Map(),
       /** deviceId -> { state, serverTime } of the last read. */
       data: new Map(),
       /** deviceId -> { until, wait }: its state answered 401/403. */
       denied: new Map(),
+      /** deviceId -> { until, wait, reason }: its state failed (5xx, timeout, bad answer). */
+      failed: new Map(),
       online: undefined,
       failures: 0,
       wait: undefined,
@@ -165,7 +197,8 @@ export class CompitApp {
       error: undefined,
       timer: undefined,
       running: undefined,
-      followUps: new Set(),
+      /** The follow-up reads after commands: one timer, the devices and their due times. */
+      follow: { timer: undefined, due: [] },
     };
   }
 
@@ -176,6 +209,10 @@ export class CompitApp {
     this.memoryLoaded = true;
     const raw = await this.store.load().catch(() => null);
     this.memory = normalizeMemory(raw, this.now());
+    if (!this.memory.uid) {
+      // One uid per installation, made once (saved before the first sign-in leaves).
+      this.memory.uid = newUid();
+    }
     // The sticky "Summer" guards of the previous run go on until their end.
     for (const { id, until } of this.memory.stops) {
       this.guards.set(`${id}:${F.SEASON}`, {
@@ -215,17 +252,23 @@ export class CompitApp {
     return this.saveMemory();
   }
 
-  /** The refusal of the account, lifted only for other credentials. */
+  /** The print kept while refused (see src/store.js). */
+  refusalPrint(reason) {
+    return refusalPrint(this.memory.salt, reason, this.config.email, this.config.password);
+  }
+
+  /** The refusal of the account, lifted only for other credentials. Returns true when lifted. */
   async checkRefusal() {
     if (!this.memory.refused || this.config.problem) {
-      return;
+      return false;
     }
-    const fp = fingerprint(this.memory.salt, accountSecret(this.config));
-    if (this.memory.fp !== '' && this.memory.fp !== fp) {
+    if (this.memory.fp !== '' && this.memory.fp !== this.refusalPrint(this.memory.reason)) {
       // Other credentials than those refused (changed while stopped): tried.
       this.liftRefusal();
       await this.saveMemory();
+      return true;
     }
+    return false;
   }
 
   liftRefusal() {
@@ -234,13 +277,13 @@ export class CompitApp {
     this.memory.reason = '';
   }
 
-  async start(raw = {}) {
+  async start(raw = {}, { changed = false } = {}) {
     const previous = this.account;
     this.stop();
     await previous?.running;
     await this.loadMemory();
     this.config = normalizeConfig(raw);
-    await this.checkRefusal();
+    const lifted = await this.checkRefusal();
     this.account = this.config.problem ? undefined : this.freshAccount(this.config);
     // The roles are those this account reports from now on (the created
     // features are kept anyway by keepCreatedFeatures).
@@ -255,6 +298,15 @@ export class CompitApp {
       return;
     }
     await this.setStatus(false, T.connecting);
+    // A restart never reads sooner than the interval after the last read
+    // (other credentials are tried at once).
+    const since = this.now() - this.memory.lastReadAt;
+    const wait = changed || lifted ? 0 : Math.min(this.interval, this.interval - since);
+    if (wait > 0 && !this.memory.refused) {
+      this.lastAttemptAt = this.clock() - since;
+      this.schedule(wait);
+      return;
+    }
     await this.tick();
   }
 
@@ -262,10 +314,10 @@ export class CompitApp {
     this.generation += 1;
     if (this.account) {
       this.clearTimer();
-      for (const handle of this.account.followUps) {
-        this.timers.clearTimeout(handle);
+      if (this.account.follow.timer) {
+        this.timers.clearTimeout(this.account.follow.timer);
+        this.account.follow.timer = undefined;
       }
-      this.account.followUps.clear();
       this.account.client.close();
     }
     this.publisher.stop();
@@ -318,7 +370,7 @@ export class CompitApp {
         this.liftRefusal();
         await this.saveMemory();
       }
-      await this.start(raw);
+      await this.start(raw, { changed: true });
       return;
     }
     const previous = this.config;
@@ -363,14 +415,15 @@ export class CompitApp {
   }
 
   /** The next read: after a backoff when the last one failed, else the interval. Never while refused. */
-  schedule() {
+  schedule(first) {
     const account = this.account;
     this.clearTimer();
     if (this.memory.refused) {
       // A final stop: only the user (other credentials, the button) tries again.
       return;
     }
-    const base = account.online === false ? (account.wait ?? this.interval) : this.interval;
+    const base =
+      first ?? (account.online === false ? (account.wait ?? this.interval) : this.interval);
     const paused = Math.max(0, this.memory.pausedUntil - this.now());
     const wait = Math.max(base, paused, 0);
     const generation = this.generation;
@@ -404,6 +457,12 @@ export class CompitApp {
     } else if (this.memory.refused && !force) {
       this.halted(account, 'auth', undefined);
     } else {
+      this.lastAttemptAt = this.clock();
+      if (now - this.memory.lastReadAt >= MINUTE) {
+        // On disk before the read leaves (at most once a minute).
+        this.memory.lastReadAt = now;
+        await this.saveMemory();
+      }
       try {
         await this.read(account, generation);
       } catch (err) {
@@ -429,10 +488,17 @@ export class CompitApp {
     account.wait = wait;
   }
 
-  async read(account, generation) {
+  /**
+   * One read: the gates when due, then the state of every device (or of
+   * `only`, the commanded devices of a follow-up read). Throws for what
+   * concerns the whole account; keeps a failure of one device to it.
+   */
+  async read(account, generation, { only } = {}) {
     const { client } = account;
     const writes = this.writes;
-    if (!account.gates || this.clock() - account.gatesAt >= TIMINGS.gatesInterval) {
+    const due = this.clock() - account.gatesAt >= TIMINGS.gatesInterval;
+    // No token held (a renewal that could not leave): the gates sign in again.
+    if (!only && (!account.gates || due || account.recheck || !client.hasSession)) {
       try {
         const gates = gatesOf((await client.gates()).data);
         if (!gates) {
@@ -441,6 +507,7 @@ export class CompitApp {
         account.gates = gates;
         account.devices = devicesOf(gates);
         account.gatesAt = this.clock();
+        account.recheck = false;
       } catch (err) {
         // A list that fails while the devices are known never stops their reads.
         const fatal = isAuthRefused(err) || isBusy(err) || err.code === CODES.NO_SESSION;
@@ -455,44 +522,92 @@ export class CompitApp {
       return;
     }
     const fresh = new Map();
-    for (const id of account.devices.keys()) {
-      const denied = account.denied.get(id);
-      // The end is capped at each use (a value never waits longer than its maximum).
-      if (denied && Math.min(denied.until, this.clock() + TIMINGS.deniedMax) > this.clock()) {
+    let confirmed = false;
+    let attempted = 0;
+    let failedCount = 0;
+    let lastError;
+    for (const id of only ?? [...account.devices.keys()]) {
+      if (!account.devices.has(id)) {
         continue;
       }
+      if (!only && this.waiting(account.denied.get(id), TIMINGS.deniedMax)) {
+        continue;
+      }
+      if (!only && this.waiting(account.failed.get(id), HOUR)) {
+        continue;
+      }
+      attempted += 1;
       let answer;
+      let error;
       try {
         answer = await client.state(id);
       } catch (err) {
-        if (generation !== this.generation) {
-          return;
-        }
-        if (err.code === CODES.HTTP && (err.status === 401 || err.status === 403)) {
-          // The gates read with this token: this device only is refused.
-          const wait = Math.min(TIMINGS.deniedMax, denied ? denied.wait * 2 : TIMINGS.deniedMin);
-          account.denied.set(id, { until: this.clock() + wait, wait });
-          account.data.delete(id);
-          this.logger.warn(`Compit: access to device ${id} refused (HTTP ${err.status})`);
-          continue;
-        }
-        if (err.code === CODES.HTTP && err.status === 404) {
-          // No longer on the account: listed again at the next read.
-          account.gatesAt = -Infinity;
-          account.data.delete(id);
-          continue;
-        }
-        throw err;
+        error = err;
       }
       if (generation !== this.generation) {
         return;
       }
+      if (error && isHttp(error, 401) && !confirmed) {
+        // Is the token still good? Asked once per read, on the gates: a
+        // refusal there goes the normal way (renewal, or a stop).
+        const how = await client.confirmToken();
+        confirmed = true;
+        if (generation !== this.generation) {
+          return;
+        }
+        if (how === 'renewed') {
+          error = undefined;
+          try {
+            answer = await client.state(id);
+          } catch (err) {
+            error = err;
+          }
+          if (generation !== this.generation) {
+            return;
+          }
+        }
+      }
+      if (error) {
+        if (isHttp(error, 401, 403)) {
+          // The gates read with this token: this device only is refused.
+          const denied = account.denied.get(id);
+          const wait = Math.min(TIMINGS.deniedMax, denied ? denied.wait * 2 : TIMINGS.deniedMin);
+          account.denied.set(id, { until: this.clock() + wait, wait });
+          account.data.delete(id);
+          this.logger.warn(`Compit: access to device ${id} refused (HTTP ${error.status})`);
+          attempted -= 1;
+          continue;
+        }
+        if (isHttp(error, 404)) {
+          // No longer on the account: listed again at the next read.
+          account.gatesAt = -Infinity;
+          account.data.delete(id);
+          attempted -= 1;
+          continue;
+        }
+        if (isHttp(error, 429) || isAuthRefused(error) || error.code === CODES.NO_SESSION) {
+          throw error;
+        }
+        this.deviceFailed(account, id, error);
+        failedCount += 1;
+        lastError = error;
+        continue;
+      }
       const state = stateOf(answer.data);
       if (!state) {
-        throw new CompitError(CODES.BAD_ANSWER, { sent: true });
+        const bad = new CompitError(CODES.BAD_ANSWER, { sent: true });
+        this.deviceFailed(account, id, bad);
+        failedCount += 1;
+        lastError = bad;
+        continue;
       }
       account.denied.delete(id);
+      account.failed.delete(id);
       fresh.set(id, { state, serverTime: answer.serverTime });
+    }
+    if (!only && attempted > 0 && failedCount === attempted) {
+      // Every device failed: the account, not one device.
+      throw lastError;
     }
     for (const id of [...account.data.keys()]) {
       if (!account.devices.has(id)) {
@@ -519,6 +634,19 @@ export class CompitApp {
     }
   }
 
+  /** Whether a device spacing still holds (capped at each use). */
+  waiting(entry, max) {
+    return Boolean(entry) && Math.min(entry.until, this.clock() + max) > this.clock();
+  }
+
+  /** The state of one device failed (5xx, timeout, bad answer): that device only, spaced. */
+  deviceFailed(account, id, err) {
+    const previous = account.failed.get(id);
+    const wait = Math.min(HOUR, previous ? previous.wait * 2 : this.interval);
+    account.failed.set(id, { until: this.clock() + wait - SECOND, wait, reason: reasonOf(err) });
+    this.logger.warn(`Compit: device ${id} not read (${reasonOf(err)})`);
+  }
+
   /**
    * A refusal of the account or a 429/5xx, met by any request: the stop or
    * the pause, persisted. Returns { kind, wait }, or undefined for any other error.
@@ -528,7 +656,7 @@ export class CompitApp {
     if (isAuthRefused(err)) {
       this.memory.refused = true;
       this.memory.reason = err.reason ?? 'login';
-      this.memory.fp = fingerprint(this.memory.salt, accountSecret(this.config));
+      this.memory.fp = this.refusalPrint(this.memory.reason);
       void this.saveMemory();
       this.logger.warn(
         `Compit refused the account (${this.memory.reason}, HTTP ${err.status ?? '?'}): stopped, no automatic retry`,
@@ -615,9 +743,9 @@ export class CompitApp {
 
   /**
    * How a device stands: 'online', 'stale' (its controller has not reached
-   * the cloud), 'denied', 'unknown' (listed, its state not read yet),
-   * 'offline' (iNext does not answer) or 'gone' (no longer on the account).
-   * undefined while a first read is under way.
+   * the cloud), 'denied', 'error' (its state failed), 'unknown' (listed, its
+   * state not read yet), 'offline' (iNext does not answer) or 'gone' (no
+   * longer on the account). undefined while a first read is under way.
    */
   standing(deviceId) {
     if (this.live) {
@@ -626,6 +754,9 @@ export class CompitApp {
       }
       if (this.account.denied.has(deviceId)) {
         return 'denied';
+      }
+      if (this.account.failed.has(deviceId)) {
+        return 'error';
       }
       const entry = this.account.data.get(deviceId);
       if (!entry) {
@@ -781,8 +912,14 @@ export class CompitApp {
     if (account.devices.size === 0) {
       return [true, T.noDevice];
     }
-    const text = T.connected(account.gates.length, account.devices.size);
-    return [true, account.denied.size > 0 ? T.join(text, T.denied(account.denied.size)) : text];
+    let text = T.connected(account.gates.length, account.devices.size);
+    if (account.denied.size > 0) {
+      text = T.join(text, T.denied(account.denied.size));
+    }
+    if (account.failed.size > 0) {
+      text = T.join(text, T.notRead(account.failed.size));
+    }
+    return [true, text];
   }
 
   /** A device was created (or updated): send its last values at once. */
@@ -816,16 +953,22 @@ export class CompitApp {
 
   // --- Configuration button --------------------------------------------------
 
-  /** Reads now (even after a refused account: the user asked), at most every 10 s. */
+  /**
+   * Reads now (even after a refused account: the user asked: one try), but
+   * never sooner than the interval (10 s at least) after the last read; else
+   * the current state and when the next read may come.
+   */
   async testConnection() {
     if (!this.account) {
       return this.status()[1];
     }
-    if (this.clock() - this.lastTestAt < TIMINGS.testCooldown) {
+    const floor = Math.max(TIMINGS.testCooldown, this.interval);
+    const since = this.clock() - this.lastAttemptAt;
+    if (since < floor) {
       const last = JSON.parse(this.lastStatus ?? '[false,null]')[1];
-      return last ? T.join(T.test.cooldown, last) : T.test.cooldown;
+      const next = T.test.next(age(floor - since));
+      return last ? T.join(next, last) : next;
     }
-    this.lastTestAt = this.clock();
     // A pause (429/5xx) and the minute between two sign-ins hold even for
     // the button; a read in progress is joined. Gladys waits 30 s for the
     // button: the answer comes by 25 s.
@@ -853,8 +996,8 @@ export class CompitApp {
 
   /**
    * The value of a command, checked strictly (null, '' or 'abc' are not a
-   * number; a season is one of the exact option values), within the bounds
-   * of the configuration.
+   * number; a season is one of the exact option values; hot water in whole
+   * degrees), within the bounds of the configuration.
    */
   parseCommand(role, value) {
     if (role === F.SEASON) {
@@ -866,6 +1009,9 @@ export class CompitApp {
     const number = numberOf(value);
     if (number === undefined) {
       throw this.refusal(ERRORS.badNumber);
+    }
+    if (role === F.DHW_SETPOINT && !Number.isInteger(number)) {
+      throw this.refusal(ERRORS.badWhole);
     }
     if (Math.abs(number * 10 - Math.round(number * 10)) > 1e-6) {
       throw this.refusal(ERRORS.badStep);
@@ -928,28 +1074,33 @@ export class CompitApp {
     if (this.memory.pausedUntil > this.now()) {
       throw this.refusal(ERRORS.paused);
     }
-    if (generation !== this.generation || this.account !== account || !this.live) {
+    if (generation !== this.generation || this.account !== account) {
       throw this.refusal(ERRORS.unknownDevice);
     }
+    if (!this.live) {
+      throw this.refusal(account.online === false ? ERRORS.lastReadFailed : ERRORS.notReadYet);
+    }
     if (!account.client.hasSession) {
-      throw this.refusal(ERRORS.noSession);
+      throw this.refusal(account.client.signingIn ? ERRORS.signingIn : ERRORS.noSession);
     }
     if (role !== F.SEASON && value !== undefined) {
       // The ceiling may have been lowered since the command arrived.
-      const { low, high } = this.bounds(role);
-      const lo = Math.max(low, range?.low ?? low);
-      const hi = Math.min(high, range?.high ?? high);
-      if (value < lo || value > hi) {
-        throw this.refusal(ERRORS.outOfRange(lo, hi));
+      const { low, high } = this.rangeOf(role, range ?? {});
+      if (value < low || value > high) {
+        throw this.refusal(ERRORS.outOfRange(low, high));
       }
     }
   }
 
-  /** The bounds the controller gives for a parameter, intersected with ours. */
+  /** The bounds the controller gives for a parameter, intersected with ours (whole degrees for hot water). */
   rangeOf(role, param) {
     const { low, high } = this.bounds(role);
-    const lo = Math.max(low, param.min ?? low);
-    const hi = Math.min(high, param.max ?? high);
+    let lo = Math.max(low, param.min ?? param.low ?? low);
+    let hi = Math.min(high, param.max ?? param.high ?? high);
+    if (role === F.DHW_SETPOINT) {
+      lo = Math.ceil(lo);
+      hi = Math.floor(hi);
+    }
     return { low: lo, high: hi };
   }
 
@@ -981,10 +1132,13 @@ export class CompitApp {
       if (err.code === CODES.LATE || err.code === CODES.TIMEOUT) {
         throw this.refusal(ERRORS.tooSlow);
       }
-      if (err.code === CODES.NO_SESSION || (err.code === CODES.HTTP && err.status === 401)) {
-        // The token is renewed by the next poll, on its own schedule (never
-        // twice a minute): no sign-in fits in the time of a command.
+      if (err.code === CODES.NO_SESSION) {
         throw this.refusal(ERRORS.noSession);
+      }
+      if (isHttp(err, 401, 403)) {
+        // The token is kept: the next read confirms it on the gates first.
+        account.recheck = true;
+        throw this.refusal(ERRORS.deviceDenied(err.status));
       }
       this.block(err);
       throw this.refusal(ERRORS.unknownState(reasonOf(err)));
@@ -1033,22 +1187,20 @@ export class CompitApp {
     const options = {
       startBy: sendBy,
       answerBy: received + TIMINGS.commandAnswerBy,
-      // The very last check, right before the request leaves.
+      // The very last check, once the connection is up, right before the
+      // request leaves (called once, by the transport).
       beforeSend: () => {
         this.checkBeforeSend(checks);
-        if (role === F.SEASON) {
-          // A start really leaving: a sticky "Summer" guard of this device
-          // ends here, synchronously, before the write.
-          this.lastStartAt.set(deviceId, this.clock());
+        if (role === F.SEASON && this.guards.get(key)?.sticky) {
+          // A start really leaving, newer than the "Summer": its sticky
+          // guard ends here, synchronously, before the write.
           this.guards.delete(key);
+          void this.saveMemory();
         }
       },
     };
     try {
-      await this.trackWrite(
-        deviceId,
-        account.client.setParameter(deviceId, code, wanted.value, options),
-      );
+      await this.write(account, deviceId, code, wanted.value, options);
     } catch (err) {
       if (err.beforeSend) {
         throw err;
@@ -1061,38 +1213,127 @@ export class CompitApp {
       }
       if (err.code === CODES.HTTP && err.status >= 400 && err.status <= 499) {
         // Refused by iNext (token, request, rate): not applied.
+        if (isHttp(err, 401)) {
+          account.recheck = true;
+        }
         this.block(err);
         this.followUp(account, deviceId);
         throw this.refusal(ERRORS.refused(reason));
       }
       // A silence, a dropped connection, a 5xx: the write may have reached iNext.
       this.block(err);
-      this.guard(key, { from: current, expected: wanted.value });
+      this.guardUnlessStopped(key, deviceId, epoch, { from: current, expected: wanted.value });
       this.followUp(account, deviceId);
       throw this.refusal(ERRORS.sentUnconfirmed(reason));
     }
-    this.guard(key, { from: current, expected: wanted.value });
+    this.guardUnlessStopped(key, deviceId, epoch, { from: current, expected: wanted.value });
     this.followUp(account, deviceId);
   }
 
-  /** Keeps the write of a device while it is leaving ("Summer" waits for it). */
-  trackWrite(deviceId, promise) {
-    const tracked = promise.finally(() => {
-      if (this.writing.get(deviceId) === tracked) {
-        this.writing.delete(deviceId);
-      }
-    });
-    this.writing.set(deviceId, tracked);
-    return tracked;
+  /** The guard of a command, unless a "Summer" came after it (its guard wins). */
+  guardUnlessStopped(key, deviceId, epoch, plan) {
+    if ((this.stopEpoch.get(deviceId) ?? 0) === epoch) {
+      this.guard(key, plan);
+    }
   }
 
   /**
-   * "Summer" (heating off): the protective choice. Refused only when it
-   * cannot leave: no account or no token (a sign-in is under way, or the
-   * account was refused), a device whose type is unknown, a write of the
-   * same device that does not end in time, or iNext not reachable in time.
-   * Never behind the option, the pause (one try), the spacing or another
-   * command; a command of the device not sent yet is cancelled.
+   * One write of a device. Its departure (the transport's beforeSend, once
+   * the connection is up) and its end are kept: "Summer" waits for the
+   * departure of a previous write only, never for its answer.
+   */
+  write(account, deviceId, code, value, options) {
+    let departed;
+    const departure = new Promise((resolve) => {
+      departed = resolve;
+    });
+    const inner = options.beforeSend;
+    const promise = account.client.setParameter(deviceId, code, value, {
+      ...options,
+      beforeSend: () => {
+        inner?.();
+        this.lastWriteAt.set(deviceId, this.clock());
+        departed();
+      },
+    });
+    const tracked = promise.finally(() => {
+      departed();
+      if (this.writing.get(deviceId) === tracked) {
+        this.writing.delete(deviceId);
+      }
+      if (this.departures.get(deviceId) === departure) {
+        this.departures.delete(deviceId);
+      }
+    });
+    this.writing.set(deviceId, tracked);
+    this.departures.set(deviceId, departure);
+    return tracked;
+  }
+
+  /** Waits for `promise` until `by` (wall clock); 'late' after it. */
+  async within(promise, by) {
+    let handle;
+    const late = new Promise((resolve) => {
+      handle = this.timers.setTimeout(() => resolve('late'), Math.max(0, by - this.now()));
+    });
+    try {
+      return await Promise.race([promise, late]);
+    } finally {
+      this.timers.clearTimeout(handle);
+    }
+  }
+
+  /**
+   * A session for "Summer": the token held, or a sign-in made (or joined)
+   * now, within the budget, also during a pause (one try). Throws the
+   * refusal with its true cause.
+   */
+  async sessionFor(account, by) {
+    const { client } = account;
+    if (client.hasSession) {
+      return;
+    }
+    if (this.memory.refused) {
+      throw this.refusal(ERRORS.refusedAccount);
+    }
+    if (!client.signingIn && !this.mayLogin()) {
+      const wait = this.memory.lastLoginAt + TIMINGS.loginFloor - this.now();
+      throw this.refusal(ERRORS.loginFloor(age(wait)));
+    }
+    const login = client.login({ answerBy: by }).then(
+      () => 'done',
+      (err) => err,
+    );
+    const outcome = await this.within(login, by);
+    if (outcome === 'late') {
+      throw this.refusal(ERRORS.tooSlow);
+    }
+    if (outcome !== 'done') {
+      throw this.signInRefusal(outcome);
+    }
+  }
+
+  /** The refusal of "Summer" after a sign-in (or a check of the token) that failed. */
+  signInRefusal(err) {
+    if (isAuthRefused(err)) {
+      this.block(err);
+      return this.refusal(ERRORS.refusedAccount);
+    }
+    if (err?.code === CODES.NO_SESSION) {
+      const wait = this.memory.lastLoginAt + TIMINGS.loginFloor - this.now();
+      return this.refusal(ERRORS.loginFloor(age(Math.max(SECOND, wait))));
+    }
+    if (err?.code === CODES.LATE || err?.code === CODES.TIMEOUT) {
+      return this.refusal(ERRORS.tooSlow);
+    }
+    this.block(err);
+    return this.refusal(ERRORS.notSent(reasonOf(err)));
+  }
+
+  /**
+   * "Summer" (heating and cooling of the installation off): the protective
+   * choice. No option, through a pause (one try), it signs in by itself when
+   * needed. Refused only when it cannot leave: see the docs (the same list).
    */
   async protect(target, received) {
     const { deviceId } = target;
@@ -1101,102 +1342,158 @@ export class CompitApp {
     this.stopEpoch.set(deviceId, (this.stopEpoch.get(deviceId) ?? 0) + 1);
     const account = this.account;
     const sendBy = received + TIMINGS.commandSendBy;
+    const lastBy = sendBy - TIMINGS.commandMinSend;
     if (!account) {
-      throw this.refusal(ERRORS.unknownDevice);
-    }
-    if (!account.client.hasSession) {
-      throw this.refusal(this.memory.refused ? ERRORS.refusedAccount : ERRORS.noSession);
+      throw this.refusal(ERRORS.noAccount);
     }
     const type = this.typeOf(deviceId);
     const code = type === undefined ? undefined : parameterOf(F.SEASON, type);
     if (code === undefined) {
-      throw this.refusal(ERRORS.unknownDevice);
+      throw this.refusal(ERRORS.unknownType);
     }
-    // Only a write already leaving is awaited, never longer than the budget.
-    const pending = this.writing.get(deviceId);
-    if (pending) {
-      let handle;
-      const late = new Promise((resolve) => {
-        handle = this.timers.setTimeout(
-          () => resolve('late'),
-          Math.max(0, sendBy - TIMINGS.commandMinSend - this.now()),
-        );
-      });
-      const outcome = await Promise.race([
-        pending.then(
-          () => 'done',
-          () => 'done',
-        ),
-        late,
-      ]);
-      this.timers.clearTimeout(handle);
-      if (outcome === 'late') {
-        throw this.refusal(ERRORS.tooSlow);
-      }
+    // Only the departure of a write already leaving is awaited (never its answer).
+    const leaving = this.departures.get(deviceId);
+    const earlier = this.writing.has(deviceId);
+    if (leaving && (await this.within(leaving, lastBy)) === 'late') {
+      throw this.refusal(ERRORS.tooSlow);
     }
-    // A "Winter" that left shortly before may still be applied after this
-    // one: the guard is then sticky (written again by the follow-ups).
-    const startedAt = this.lastStartAt.get(deviceId) ?? -Infinity;
-    const sticky = this.clock() - startedAt < TIMINGS.guard;
+    await this.sessionFor(account, lastBy);
+    // A write of the device that left before this one may still be applied
+    // after it: the guard is then sticky (written again by the follow-ups).
+    const sticky =
+      earlier || this.clock() - (this.lastWriteAt.get(deviceId) ?? -Infinity) < TIMINGS.guard;
     this.logger.info(`Compit device ${deviceId} season: summer (heating off)`);
+    const expected = SEASONS[PROTECTIVE_SEASON];
     const options = {
       startBy: sendBy,
       answerBy: received + TIMINGS.commandAnswerBy,
       beforeSend: () => {
         if (this.account !== account) {
-          throw this.refusal(ERRORS.unknownDevice);
+          throw this.refusal(ERRORS.noAccount);
         }
       },
     };
-    const expected = SEASONS[PROTECTIVE_SEASON];
-    try {
-      await this.trackWrite(
-        deviceId,
-        account.client.setParameter(deviceId, code, expected, options),
-      );
-    } catch (err) {
-      if (err.beforeSend) {
-        throw err;
-      }
-      const reason = reasonOf(err);
-      this.logger.warn(`Compit device ${deviceId} season summer: write failed (${reason})`);
-      if (!err.sent) {
-        throw this.refusal(err.code === CODES.LATE ? ERRORS.tooSlow : ERRORS.notSent(reason));
-      }
-      if (err.code === CODES.HTTP && err.status >= 400 && err.status <= 499) {
+    let retried = false;
+    for (;;) {
+      try {
+        await this.write(account, deviceId, code, expected, options);
+        break;
+      } catch (err) {
+        if (err.beforeSend) {
+          throw err;
+        }
+        if (isHttp(err, 401) && !retried && this.now() < lastBy) {
+          // Is it the token? Checked on the gates (renewed if refused there),
+          // then written once more; else this device refuses the write.
+          retried = true;
+          const how = await this.within(
+            account.client.confirmToken().then(
+              (value) => value,
+              (failure) => failure,
+            ),
+            lastBy,
+          );
+          if (how === 'late') {
+            throw this.refusal(ERRORS.tooSlow);
+          }
+          if (how === 'renewed') {
+            continue;
+          }
+          if (how !== 'valid') {
+            throw this.signInRefusal(how);
+          }
+        }
+        const reason = reasonOf(err);
+        this.logger.warn(`Compit device ${deviceId} season summer: write failed (${reason})`);
+        if (!err.sent) {
+          throw this.refusal(err.code === CODES.LATE ? ERRORS.tooSlow : ERRORS.notSent(reason));
+        }
+        if (err.code === CODES.HTTP && err.status >= 400 && err.status <= 499) {
+          this.block(err);
+          this.followUp(account, deviceId, { quiet: false });
+          throw this.refusal(ERRORS.refused(reason));
+        }
         this.block(err);
+        this.guard(key, { from: undefined, expected, sticky: true });
         this.followUp(account, deviceId, { quiet: false });
-        throw this.refusal(ERRORS.refused(reason));
+        throw this.refusal(ERRORS.sentUnconfirmed(reason));
       }
-      this.block(err);
-      this.guard(key, { from: undefined, expected, sticky: true });
-      this.followUp(account, deviceId, { quiet: false });
-      throw this.refusal(ERRORS.sentUnconfirmed(reason));
     }
     this.guard(key, { from: undefined, expected, sticky });
     this.followUp(account, deviceId, { quiet: false });
   }
 
-  /** Reads after a command, spaced: its effect, then a check. */
+  /**
+   * After a command: follow-up reads of the commanded devices only, 5 s
+   * then 20 s after it, grouped (one timer per account, one read for every
+   * device due).
+   */
   followUp(account, deviceId, { quiet = true } = {}) {
-    const generation = this.generation;
     this.writes += 1;
     if (quiet) {
       // A write may have left: the next command of the device waits a
       // little, so that two settings are never written back to back.
       this.quietUntil.set(deviceId, this.clock() + TIMINGS.commandSpacing);
     }
+    const now = this.clock();
+    const { follow } = account;
     for (const delay of TIMINGS.followUps) {
-      const handle = this.timers.setTimeout(() => {
-        account.followUps.delete(handle);
-        // Never sooner than the backoff: an account that stopped answering
-        // is read again on its own schedule only.
-        if (generation === this.generation && this.account?.online !== false) {
-          this.tick().catch(() => this.logger.error('Compit refresh failed'));
-        }
-      }, delay);
-      account.followUps.add(handle);
+      follow.due.push({ id: deviceId, at: now + delay });
     }
+    // Bounded: a scene sending commands in a loop never piles up more.
+    follow.due = follow.due.sort((a, b) => a.at - b.at).slice(-64);
+    this.armFollow(account);
+  }
+
+  armFollow(account) {
+    const { follow } = account;
+    if (follow.timer || follow.due.length === 0) {
+      return;
+    }
+    const generation = this.generation;
+    const wait = Math.max(0, follow.due[0].at - this.clock());
+    follow.timer = this.timers.setTimeout(() => {
+      follow.timer = undefined;
+      if (generation !== this.generation) {
+        return;
+      }
+      const now = this.clock();
+      const ids = new Set(follow.due.filter((d) => d.at <= now + 100).map((d) => d.id));
+      follow.due = follow.due.filter((d) => d.at > now + 100);
+      this.followRead(account, [...ids]).finally(() => this.armFollow(account));
+    }, wait);
+  }
+
+  /** A follow-up read: never during a pause or a stop, never twice at once. */
+  async followRead(account, ids) {
+    if (
+      account !== this.account ||
+      account.running ||
+      account.online === false ||
+      this.memory.refused ||
+      this.memory.pausedUntil > this.now() ||
+      !account.client.hasSession
+    ) {
+      return;
+    }
+    const generation = this.generation;
+    account.running = (async () => {
+      try {
+        await this.read(account, generation, { only: ids });
+      } catch (err) {
+        if (generation === this.generation) {
+          // Only a pause or a stop is kept: the next poll tells the rest.
+          this.block(err);
+        }
+        return;
+      }
+      if (generation === this.generation) {
+        await this.publishAll();
+      }
+    })().finally(() => {
+      account.running = undefined;
+    });
+    await account.running;
   }
 
   // --- Guards ----------------------------------------------------------------------
@@ -1205,7 +1502,7 @@ export class CompitApp {
    * After a command, until a read shows it: a new command is always sent,
    * never answered "already so" on a value that may not show the previous
    * one yet. The start value is kept: a read equal to it lifts nothing
-   * until a move was seen. A sticky guard ("Summer" after a "Winter") is
+   * until a move was seen. A sticky guard ("Summer" after another write) is
    * lifted by time only, and kept in /data.
    */
   guard(key, { from, expected, sticky = false }) {
@@ -1272,16 +1569,13 @@ export class CompitApp {
     }
     guard.resends += 1;
     this.logger.warn(`Compit device ${deviceId}: "Summer" written again (${guard.resends}/3)`);
-    this.trackWrite(
-      deviceId,
-      account.client.setParameter(deviceId, code, guard.expected, {
-        beforeSend: () => {
-          if (this.account !== account || this.guards.get(`${deviceId}:${F.SEASON}`) !== guard) {
-            throw this.refusal(ERRORS.unknownDevice);
-          }
-        },
-      }),
-    )
+    this.write(account, deviceId, code, guard.expected, {
+      beforeSend: () => {
+        if (this.account !== account || this.guards.get(`${deviceId}:${F.SEASON}`) !== guard) {
+          throw this.refusal(ERRORS.noAccount);
+        }
+      },
+    })
       .then(() => this.followUp(account, deviceId, { quiet: false }))
       .catch((err) => {
         if (!err.beforeSend) {

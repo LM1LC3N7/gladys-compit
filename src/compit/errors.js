@@ -24,8 +24,9 @@ export class CompitError extends Error {
    * @param {number} [details.status] the HTTP status
    * @param {number} [details.retryAfterMs] a Retry-After, in ms
    * @param {boolean} [details.sent] the request may have reached Compit
-   * @param {'login' | 'token' | 'client'} [details.reason] why REFUSED: the
-   *   sign-in, a token refused right after it, the client registration
+   * @param {'login' | 'token' | 'client' | 'request'} [details.reason] why
+   *   REFUSED: the credentials, a token refused right after the sign-in, the
+   *   client registration, the sign-in request (HTTP 400)
    */
   constructor(code, { status, retryAfterMs, sent = false, reason } = {}) {
     super(status === undefined ? code : `HTTP ${status}`);

@@ -49,10 +49,13 @@ export const MODELS = {
 export const PARAMETERS = {
   // CURRENT_TEMPERATURE
   [F.ROOM_TEMPERATURE]: { 7: '__t_pokojowa', 12: '__tpokojowa', 223: '__tpokojowa' },
-  // TARGET_TEMPERATURE: the setpoint in force (program, manual, away...), read only.
-  [F.ROOM_TARGET]: { 12: '__tpokzadana', 223: '__tpokzadana' },
-  // SET_TARGET_TEMPERATURE: the manual setpoint, the one Home Assistant writes.
-  [F.SETPOINT]: { 7: '__tzadman', 12: '__tempzadpracareczna', 223: '__tempzadpracareczna' },
+  // TARGET_TEMPERATURE: the setpoint in force (program, manual, away...), read
+  // only. On the Nano One it is `__tzadman`, which the device definitions of
+  // the reference give as read only ("R"): published as a sensor there.
+  [F.ROOM_TARGET]: { 7: '__tzadman', 12: '__tpokzadana', 223: '__tpokzadana' },
+  // SET_TARGET_TEMPERATURE: the manual setpoint, the one Home Assistant
+  // writes (read/write in the definitions of the Nano Color and Color 2).
+  [F.SETPOINT]: { 12: '__tempzadpracareczna', 223: '__tempzadpracareczna' },
   // OUTDOOR_TEMPERATURE
   [F.OUTDOOR]: {
     3: '__tzewn',

@@ -89,6 +89,8 @@ export function fakeCompit({ email = EMAIL, password = PASSWORD, registered = fa
     tokens: new Set(),
     issued: 0,
     registered,
+    /** Devices whose last contact with the cloud stays as set. */
+    offline: new Set(),
     gates: gates(),
     states: states(),
     /** [{ match: (req) => bool, status, delay, hang, drop, times }] */
@@ -125,7 +127,7 @@ function answer(status, body, headers = {}) {
 function handle(
   compit,
   account,
-  { method, url, headers = {}, body, timeout, sendWithin, beforeSend },
+  { method, url, headers = {}, body, contentType, timeout, sendWithin, beforeSend },
 ) {
   const path = url.replace('https://inext.compit.pl/mobile/v2/compit', '');
   return new Promise((resolve, reject) => {
@@ -157,8 +159,14 @@ function handle(
         }
       }
       sent = true;
-      const parsed = body === undefined ? undefined : JSON.parse(body);
-      const request = { method, path, auth: headers.authorization, body: parsed, headers };
+      const form = contentType === 'application/x-www-form-urlencoded';
+      const parsed =
+        body === undefined
+          ? undefined
+          : form
+            ? Object.fromEntries(new URLSearchParams(body))
+            : JSON.parse(body);
+      const request = { method, path, auth: headers.authorization, body: parsed, headers, form };
       compit.requests.push(request);
       if (failure?.hang) {
         return;
@@ -211,6 +219,10 @@ function route(compit, account, { method, path, auth, body }) {
     return answer(404, { message: 'Not found' });
   }
   if (method === 'GET' && match[2] === 'state') {
+    if (!compit.offline.has(Number(match[1]))) {
+      // The controller reached the cloud a minute ago.
+      state.last_connected_at = new Date(Date.now() - 60_000).toISOString();
+    }
     return answer(200, state);
   }
   if (method === 'PUT' && match[2] === 'params') {

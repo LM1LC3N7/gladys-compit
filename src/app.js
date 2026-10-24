@@ -199,6 +199,10 @@ export class CompitApp {
       running: undefined,
       /** The follow-up reads after commands: one timer, the devices and their due times. */
       follow: { timer: undefined, due: [] },
+      /** The follow-up read under way (separate from `running`, the periodic one). */
+      following: undefined,
+      /** When the first read comes after a restart (monotonic), else undefined. */
+      firstAt: undefined,
     };
   }
 
@@ -304,7 +308,23 @@ export class CompitApp {
     const wait = changed || lifted ? 0 : Math.min(this.interval, this.interval - since);
     if (wait > 0 && !this.memory.refused) {
       this.lastAttemptAt = this.clock() - since;
+      this.account.firstAt = this.clock() + wait;
       this.schedule(wait);
+      // The sticky "Summer" guards of the previous run are checked by their
+      // follow-up reads (5 s, 20 s), whatever the wait (one sign-in a minute).
+      const stops = [...this.guards.entries()].filter(
+        ([key, g]) => g.sticky && /:season$/.test(key),
+      );
+      for (const [key] of stops) {
+        const id = Number(key.split(':')[0]);
+        for (const delay of TIMINGS.followUps) {
+          this.account.follow.due.push({ id, at: this.clock() + delay });
+        }
+      }
+      this.account.follow.due.sort((a, b) => a.at - b.at);
+      this.armFollow(this.account);
+      // Discovery and status meanwhile: the devices already created, the next read.
+      await this.publishAll();
       return;
     }
     await this.tick();
@@ -450,6 +470,11 @@ export class CompitApp {
   }
 
   async run(account, { force }) {
+    // A follow-up read under way ends first (one read at a time); the timer
+    // is armed again at the end whatever happens (schedule, below).
+    while (account.following) {
+      await account.following.catch(() => {});
+    }
     const generation = this.generation;
     const now = this.now();
     if (this.memory.pausedUntil > now) {
@@ -497,8 +522,9 @@ export class CompitApp {
     const { client } = account;
     const writes = this.writes;
     const due = this.clock() - account.gatesAt >= TIMINGS.gatesInterval;
-    // No token held (a renewal that could not leave): the gates sign in again.
-    if (!only && (!account.gates || due || account.recheck || !client.hasSession)) {
+    // No token held (a renewal that could not leave, a restart): the gates
+    // sign in again, also for a follow-up read.
+    if (!account.gates || !client.hasSession || (!only && (due || account.recheck))) {
       try {
         const gates = gatesOf((await client.gates()).data);
         if (!gates) {
@@ -907,7 +933,8 @@ export class CompitApp {
       }
     }
     if (!this.live) {
-      return [false, T.connecting];
+      const first = account.firstAt === undefined ? 0 : account.firstAt - this.clock();
+      return [false, first > 0 ? T.nextRead(age(first)) : T.connecting];
     }
     if (account.devices.size === 0) {
       return [true, T.noDevice];
@@ -1464,20 +1491,26 @@ export class CompitApp {
     }, wait);
   }
 
-  /** A follow-up read: never during a pause or a stop, never twice at once. */
+  /**
+   * A follow-up read, with its own promise (`account.following`): a
+   * periodic read under way delays it (never drops it), and a periodic read
+   * waits for it. Never during a pause or a stop; it may sign in (at most
+   * once a minute) when no token is held, through the gates.
+   */
   async followRead(account, ids) {
+    while (account.running || account.following) {
+      await (account.running ?? account.following).catch(() => {});
+    }
     if (
       account !== this.account ||
-      account.running ||
       account.online === false ||
       this.memory.refused ||
-      this.memory.pausedUntil > this.now() ||
-      !account.client.hasSession
+      this.memory.pausedUntil > this.now()
     ) {
       return;
     }
     const generation = this.generation;
-    account.running = (async () => {
+    account.following = (async () => {
       try {
         await this.read(account, generation, { only: ids });
       } catch (err) {
@@ -1491,9 +1524,9 @@ export class CompitApp {
         await this.publishAll();
       }
     })().finally(() => {
-      account.running = undefined;
+      account.following = undefined;
     });
-    await account.running;
+    await account.following;
   }
 
   // --- Guards ----------------------------------------------------------------------

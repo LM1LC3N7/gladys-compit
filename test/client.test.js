@@ -6,6 +6,7 @@
 // -----------------------------------------------------------------------------
 
 import { test } from 'node:test';
+import { inspect } from 'node:util';
 import assert from 'node:assert/strict';
 import { CompitClient, retryAfterMs, serverTimeOf } from '../src/compit/client.js';
 import { CODES } from '../src/compit/errors.js';
@@ -224,4 +225,28 @@ test('Retry-After and Date read strictly', () => {
   assert.equal(serverTimeOf({ date: 'Sat, 24 Oct 2026 18:00:00 GMT' }), Date.UTC(2026, 9, 24, 18));
   assert.equal(serverTimeOf({}), undefined);
   assert.equal(serverTimeOf({ date: 'x' }), undefined);
+});
+
+test('the tokens on an error never show in an inspection, a log or JSON', async () => {
+  const t = scripted([
+    [200, { token: 'session-token' }],
+    [200, { gates: [] }],
+    [403, {}],
+  ]);
+  const c = client(t);
+  await c.gates();
+  const err = await c.state(5).catch((e) => e);
+  assert.equal(err.token, 'session-token', 'kept for the client');
+  for (const text of [inspect(err, { showHidden: false }), JSON.stringify(err), String(err)]) {
+    assert.ok(!text.includes('session-token'), text);
+  }
+  const reg = await client(
+    scripted([
+      [422, { token: 'reg-token' }],
+      [403, {}],
+    ]),
+  )
+    .gates()
+    .catch((e) => e);
+  assert.ok(!inspect(reg).includes('reg-token'));
 });

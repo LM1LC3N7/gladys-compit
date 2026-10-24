@@ -39,7 +39,9 @@ signalé dans « État », et ses anciennes valeurs ne sont pas republiées.
 client sous le nom « Gladys », avec un identifiant propre à votre installation
 (comme le fait la bibliothèque de Home Assistant) : c'est l'unique écriture
 faite sans commande de votre part. Aucune clé d'application n'est utilisée et
-Gladys ne se fait passer pour aucune application.
+Gladys ne se fait passer pour aucune application. L'identifiant est gardé dans
+/data : si /data ne pouvait pas être écrit, chaque redémarrage enregistrerait
+un nouveau client « Gladys » ; les anciens se retirent dans l'appli iNext.
 
 ## Commandes (désactivées par défaut)
 
@@ -68,7 +70,8 @@ désactivée (vérifiée aussi juste avant l'envoi), si la valeur sort des borne
 si une valeur manque, si le régulateur dit le paramètre non modifiable, s'il
 n'a pas joint le cloud depuis 30 minutes, si iNext est en pause (occupé ou en
 panne), répond trop lentement ou refuse la lecture de l'appareil, si la
-dernière lecture d'iNext a échoué, s'il n'y a pas de session (ces commandes
+dernière lecture d'iNext a échoué ou si iNext n'a pas encore été lu (après un
+redémarrage, jusqu'à un intervalle), s'il n'y a pas de session (ces commandes
 ne se connectent jamais elles-mêmes), si une autre commande est en cours sur
 le même appareil, ou si « Été » a été demandé entre-temps. Une commande qui a
 pu partir sans réponse est annoncée « envoyée, sans confirmation ».
@@ -108,8 +111,13 @@ un redémarrage) par les lectures de suivi qui montreraient autre chose.
   Enregistrez d'autres identifiants, ou pressez « Tester la connexion » (un
   essai, pas plus souvent que l'intervalle) : seul un succès lève l'arrêt.
 - Jamais deux connexions en moins d'une minute, même après un redémarrage ;
-  jamais une lecture plus tôt que l'intervalle après la précédente, même après
-  un redémarrage ou avec le bouton « Tester la connexion ».
+  la lecture périodique ne vient jamais plus tôt que l'intervalle après la
+  précédente, même après un redémarrage ou avec le bouton « Tester la
+  connexion » (les lectures de suivi après une commande, à 5 s et 20 s, et la
+  vérification du jeton sur la liste des passerelles lisent plus tôt). Après un
+  redémarrage dans l'intervalle, le statut dit quand vient la prochaine
+  lecture ; un « Été » collant gardé dans /data est quand même vérifié par ses
+  lectures de suivi.
 - HTTP 429, ou une panne de toute la lecture : pause de 1 minute à 6 heures
   (429/5xx), gardée dans /data. Un appareil seul en panne (5xx, réponse
   illisible) est marqué « Non lu » et relu de plus en plus rarement (jusqu'à

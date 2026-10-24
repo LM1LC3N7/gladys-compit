@@ -17,6 +17,13 @@ to date at the end of every milestone.
       good password; I4 per-device failures; I5 "Summer" waits for the
       departure only; I6 test button floor; I7 water heater; I8 docs; M1 to
       M8.
+- [x] **Review 2 fixes** (2026-10-24, review r2 of 24c29ff): B1 periodic and
+      follow-up reads on separate promises (a follow-up due during a periodic
+      read is delayed, the timer always armed again); B2 renewals counted
+      from 0 after any answer accepted with the token; I3 the sticky "Summer"
+      guards reloaded at a restart get their follow-up reads whatever the
+      wait; M1 status and Discovery during the wait after a restart; M2
+      tokens never enumerable on errors; M3, M5 docs.
 - [ ] **Review approval** (xhigh: heating, cloud account, undocumented API).
 - [ ] **Milestone 2 — real account**: run against a real iNext account (see
       "To check"); turn the answers (anonymized) into fixtures.

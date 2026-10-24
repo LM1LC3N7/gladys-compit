@@ -914,3 +914,63 @@ test('a "Winter" that never left keeps the sticky "Summer" (effects only on depa
   refused(await command(THERMOSTAT, 'season', 'winter', { wait: 5 * SECOND }), /lentement/);
   assert.equal(store.data.stops.length, 1, 'never lifted by a write that did not leave');
 });
+
+// --- Review r2 scenarios ------------------------------------------------------
+
+test('S11: the poll timer during a slow follow-up read: polling goes on', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, fire } = await setup(t, { compit });
+  await advance(98 * SECOND, SECOND);
+  compit.failNext((r) => r.path === `/devices/${THERMOSTAT}/state`, { delay: 6000, times: 2 });
+  fire(THERMOSTAT, 'season', 'summer');
+  await advance(30 * SECOND, 100);
+  const before = stateReads(compit, BOILER);
+  await advance(20 * MINUTE, SECOND);
+  assert.ok(stateReads(compit, BOILER) - before >= 9, 'about one read per 120 s');
+});
+
+test('S18: a 60 s interval and a slow first follow-up: the timer is armed again', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, fire, app } = await setup(t, {
+    compit,
+    config: { ...CONFIG, poll_interval: 60 },
+  });
+  await advance(53 * SECOND, SECOND);
+  compit.failNext((r) => r.path === `/devices/${THERMOSTAT}/state`, { delay: 5000 });
+  fire(THERMOSTAT, 'season', 'summer');
+  await advance(15 * SECOND, 100);
+  const before = stateReads(compit, BOILER);
+  await advance(10 * MINUTE, SECOND);
+  assert.ok(stateReads(compit, BOILER) - before >= 8);
+  assert.ok(app.account.timer, 'a timer armed');
+});
+
+test('S19: a token expiring every 30 min for 8 h: never a stop, one sign-in per expiry', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const { advance, store, command } = await setup(t, { compit });
+  for (let i = 0; i < 16; i += 1) {
+    await advance(30 * MINUTE, SECOND);
+    compit.revokeTokens();
+  }
+  await advance(5 * MINUTE, SECOND);
+  assert.equal(store.data.refused, false);
+  assert.equal(logins(compit), 17);
+  ok(await command(THERMOSTAT, 'season', 'summer', { wait: 4 * SECOND }));
+});
+
+test('S20: a sticky "Summer" reloaded right after a recent read is still checked', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  compit.set(THERMOSTAT, '__trybpracyinstalacji', 0);
+  const store = memoryStore({
+    stops: [{ id: THERMOSTAT, until: NOW + 80 * SECOND }],
+    lastReadAt: NOW - 10 * SECOND,
+    lastLoginAt: NOW - 10 * MINUTE,
+    uid: 'gladys-compit-0123456789abcdef',
+  });
+  const { advance, gladys } = await setup(t, { compit, store, create: false });
+  assert.match(message(gladys).en, /next read in/);
+  await advance(90 * SECOND, SECOND);
+  assert.deepEqual(values(compit), [1]);
+  assert.equal(compit.value(THERMOSTAT, '__trybpracyinstalacji'), 1);
+  assert.ok(stateReads(compit, BOILER) === 0, 'the follow-ups read the guarded device only');
+});

@@ -23,5 +23,7 @@ the notes of the version's GitHub Release.
   installation off) needs no option and signs in by itself when needed; the
   guide lists the cases where it is still refused.
 - A refused account is a final stop kept in `/data`, never retried on its own.
+- A token that expires often never ends in a false "account refused"; the
+  periodic read never stops after a follow-up read.
 - One failing device never stops the others; a refused device never signs in
   again; a restart or the test button never reads sooner than the interval.

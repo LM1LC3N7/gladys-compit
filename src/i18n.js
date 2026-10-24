@@ -120,6 +120,11 @@ const REFUSALS = {
 export const T = {
   problem: (key) => PROBLEMS[key] ?? PROBLEMS.empty,
   connecting: both('Connecting to Compit iNext…', 'Connexion à Compit iNext…'),
+  nextRead: (wait) =>
+    both(
+      `Restarted less than one interval after the last read: next read in ${wait.en}.`,
+      `Redémarré moins d’un intervalle après la dernière lecture : prochaine lecture dans ${wait.fr}.`,
+    ),
   connected: (gates, devices) =>
     both(
       `Connected: ${gates} iNext module(s), ${devices} device(s).`,

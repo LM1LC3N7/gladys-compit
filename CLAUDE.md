@@ -89,8 +89,12 @@ test/                             node --test, against the SDK's fake Gladys and
   never drops the token: the token is confirmed on `/gates`.
 - **Failures**: a refused account is a final stop (no automatic retry); never
   two sign-ins within a minute; a failing device is that device only; 429, or
-  every device failing, a bounded pause persisted; never read sooner than the
-  interval (restart and test button included); a reconnection to Gladys
+  every device failing, a bounded pause persisted; the periodic read never
+  sooner than the interval (restart and test button included; follow-up
+  reads after a command and the token check on `/gates` excepted); periodic
+  and follow-up reads have their own promises and never drop each other;
+  the renewal counter goes back to 0 on any answer accepted with the token;
+  a reconnection to Gladys
   clears none of them.
 - Units only from the core's `DEVICE_FEATURE_UNITS_BY_CATEGORY`.
 - **The container rootfs is read-only.** Write only under `/data`.

@@ -206,16 +206,25 @@ export class CompitClient {
         retryAfterMs: retryAfterMs(answer.headers?.['retry-after'], this.now()),
         sent: true,
       });
-      error.token = token;
+      // Tokens kept on the error for the client only: never enumerable, so
+      // that no log or inspection of the error ever prints them.
+      hidden(error, 'token', token);
       if (answer.status === 422 && !auth) {
         // /authorize: the token of the registration is in the body of the 422.
+        let registration;
         try {
-          error.registration = parseJson(String(answer.body ?? ''))?.token;
+          registration = parseJson(String(answer.body ?? ''))?.token;
         } catch {
-          error.registration = undefined;
+          registration = undefined;
         }
+        hidden(error, 'registration', registration);
       }
       throw error;
+    }
+    if (auth && given === undefined && token === this.#token) {
+      // Any answer accepted with the session token (a state, a fresh read, a
+      // write, the gates) shows the token works: the renewals count from 0.
+      this.#renewals = 0;
     }
     // A write accepted (2xx) is accepted, whatever its body says.
     const content = ignoreBody ? '' : String(answer.body ?? '');
@@ -409,6 +418,11 @@ export class CompitClient {
       ignoreBody: true,
     });
   }
+}
+
+/** A property no enumeration, JSON nor inspection shows. */
+function hidden(object, key, value) {
+  Object.defineProperty(object, key, { value, enumerable: false, writable: false });
 }
 
 /** A form body (application/x-www-form-urlencoded); null and undefined as empty. */

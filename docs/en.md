@@ -37,7 +37,10 @@ its old values are not published again.
 On its first sign-in, Gladys registers itself on the account as a new client
 named "Gladys", with an identifier of your own installation (as the Home
 Assistant library does): the only write made without a command of yours. No
-application key is used and Gladys never poses as another application.
+application key is used and Gladys never poses as another application. The
+identifier is kept in /data: if /data could not be written, each restart
+would register a new "Gladys" client; old clients can be removed in the iNext
+app.
 
 ## Commands (off by default)
 
@@ -64,7 +67,8 @@ again right before sending), when the value is out of bounds, when a value is
 missing, when the controller says the parameter cannot be written, when it has
 not reached the cloud for 30 minutes, when iNext is paused (busy or failing),
 answers too slowly or refuses to read the device, when the last read of iNext
-failed, when there is no session (these commands never sign in by
+failed or iNext has not been read yet (after a restart, up to one interval),
+when there is no session (these commands never sign in by
 themselves), when another command of the same device is running, or when
 "Summer" was asked meanwhile. A command that may have left without an answer
 is reported "sent, without confirmation".
@@ -102,9 +106,13 @@ that would show otherwise.
   HTTP 400): a stop kept in /data, **no automatic retry**. Save other
   credentials, or press "Test the connection" (one try, never more often than
   the interval): only a success lifts the stop.
-- Never two sign-ins within a minute, even after a restart; never a read
-  sooner than the interval after the previous one, even after a restart or
-  with the "Test the connection" button.
+- Never two sign-ins within a minute, even after a restart; the periodic
+  read never comes sooner than the interval after the previous one, even after
+  a restart or with the "Test the connection" button (the follow-up reads after
+  a command, at 5 s and 20 s, and a check of the token on the list of gates
+  read sooner). After a restart within the interval, the status says when the
+  next read comes; a sticky "Summer" kept in /data is still checked by its
+  follow-up reads.
 - HTTP 429, or a failure of the whole read: a pause of 1 minute to 6 hours
   (429/5xx), kept in /data. One failing device (5xx, unreadable answer) is
   shown "Not read" and read less and less often (up to 1 hour); the others go

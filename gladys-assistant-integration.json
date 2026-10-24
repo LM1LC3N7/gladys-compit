@@ -1,177 +1,218 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "Compit",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Compit heating controllers via iNext: temperatures, alarms, optional setpoints and season.",
+    "fr": "Régulateurs de chauffage Compit par iNext : températures, alarmes, consignes et saison en option."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-compit:0.1.0",
   "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-compit/main/cover.png",
+  "categories": ["climate"],
+  "transports": ["cloud"],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": {
+        "en": "Your Compit iNext account",
+        "fr": "Votre compte Compit iNext"
+      },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Shows the Compit controllers of your iNext account in Gladys (room thermostats Nano One, Nano Color, Nano Color 2, boiler, mixing valve, hot water, solar and heat pump controllers), through the iNext cloud: temperatures, setpoints, heating season, fuel level, alarms. Enter the e-mail address and the password of your iNext account, save, then add the devices from the Discovery tab. On its first sign-in, Gladys registers itself on the account under the name \"Gladys\", as the iNext portal asks. Never tested with a real controller nor a real account. Not affiliated with Compit.",
+        "fr": "Affiche les régulateurs Compit de votre compte iNext dans Gladys (thermostats d'ambiance Nano One, Nano Color, Nano Color 2, régulateurs de chaudière, de vanne mélangeuse, d'eau chaude, solaires et de pompe à chaleur), par le cloud iNext : températures, consignes, saison de chauffage, niveau de combustible, alarmes. Saisissez l'adresse e-mail et le mot de passe de votre compte iNext, enregistrez, puis ajoutez les appareils depuis l'onglet Découverte. À sa première connexion, Gladys s'enregistre sur le compte sous le nom « Gladys », comme le demande le portail iNext. Jamais testé avec un vrai régulateur ni un vrai compte. Sans lien avec Compit."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://github.com/LM1LC3N7/gladys-compit/blob/main/docs/fr.md",
+          "label": {
+            "en": "Guide (French)",
+            "fr": "Guide (français)"
+          }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-compit/blob/main/docs/en.md",
+          "label": {
+            "en": "Guide (English)",
+            "fr": "Guide (anglais)"
+          }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
+      "key": "email",
+      "type": "string",
+      "label": {
+        "en": "E-mail address of the iNext account",
+        "fr": "Adresse e-mail du compte iNext"
       },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
+      "placeholder": {
+        "en": "you@example.com",
+        "fr": "vous@exemple.fr"
+      },
       "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
+      "default": ""
     },
     {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
+      "key": "password",
+      "type": "secret",
+      "label": {
+        "en": "Password of the iNext account",
+        "fr": "Mot de passe du compte iNext"
       },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
-    },
-    {
-      "key": "unit",
-      "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
-      "required": false,
-      "default": "celsius",
-      "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
-      ]
-    },
-    {
-      "key": "poll_frequency",
-      "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
+        "en": "Kept by Gladys in its database, never shown again, sent only to Compit (inext.compit.pl, over https).",
+        "fr": "Gardé par Gladys dans sa base, jamais réaffiché, envoyé seulement à Compit (inext.compit.pl, en https)."
+      },
+      "required": true
+    },
+    {
+      "key": "commands_section",
+      "type": "section",
+      "label": {
+        "en": "Commands",
+        "fr": "Commandes"
+      },
+      "description": {
+        "en": "By default Gladys only reads. Each kind of command has its own option. Once allowed, the dashboard, the scenes and the voice assistants can change the manual setpoint of a room thermostat, the hot water setpoint, or the heating season, always within the bounds below and those of the controller. \"Summer\" (heating off) is always allowed: it only stops the heating.",
+        "fr": "Par défaut Gladys ne fait que lire. Chaque type de commande a sa propre option. Une fois autorisés, le tableau de bord, les scènes et les assistants vocaux peuvent changer la consigne manuelle d'un thermostat d'ambiance, la consigne d'eau chaude ou la saison de chauffage, toujours dans les bornes ci-dessous et celles du régulateur. « Été » (chauffage arrêté) est toujours permis : il ne fait qu'arrêter le chauffage."
+      }
+    },
+    {
+      "key": "allow_setpoints",
+      "type": "boolean",
+      "label": {
+        "en": "Allow the room setpoint commands",
+        "fr": "Autoriser les commandes de consigne d'ambiance"
+      },
+      "description": {
+        "en": "Off by default. Off: every change of the manual setpoint of a room thermostat is refused.",
+        "fr": "Désactivé par défaut. Désactivé : tout changement de la consigne manuelle d'un thermostat d'ambiance est refusé."
       },
       "required": false,
-      "default": 300,
+      "default": false
+    },
+    {
+      "key": "max_setpoint",
+      "type": "number",
+      "label": {
+        "en": "Room setpoint ceiling (°C)",
+        "fr": "Plafond des consignes d'ambiance (°C)"
+      },
+      "description": {
+        "en": "Gladys never sets a room above this temperature. 24 °C by default, from 16 to 30 °C (never more than 30 °C, whatever is typed). The floor is 5 °C.",
+        "fr": "Gladys ne règle jamais une pièce au-dessus de cette température. 24 °C par défaut, de 16 à 30 °C (jamais plus de 30 °C, quoi qu'on saisisse). Le plancher est de 5 °C."
+      },
+      "required": false,
+      "default": 24,
+      "min": 16,
+      "max": 30
+    },
+    {
+      "key": "allow_dhw",
+      "type": "boolean",
+      "label": {
+        "en": "Allow the hot water setpoint commands",
+        "fr": "Autoriser les commandes de consigne d'eau chaude"
+      },
+      "description": {
+        "en": "Off by default. Off: every change of the hot water setpoint is refused.",
+        "fr": "Désactivé par défaut. Désactivé : tout changement de la consigne d'eau chaude est refusé."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "max_dhw",
+      "type": "number",
+      "label": {
+        "en": "Hot water setpoint ceiling (°C)",
+        "fr": "Plafond des consignes d'eau chaude (°C)"
+      },
+      "description": {
+        "en": "Gladys never sets the hot water above this temperature (scalding risk). 55 °C by default, from 40 to 60 °C (never more than 60 °C, whatever is typed). The floor is 20 °C.",
+        "fr": "Gladys ne règle jamais l'eau chaude au-dessus de cette température (risque de brûlure). 55 °C par défaut, de 40 à 60 °C (jamais plus de 60 °C, quoi qu'on saisisse). Le plancher est de 20 °C."
+      },
+      "required": false,
+      "default": 55,
+      "min": 40,
+      "max": 60
+    },
+    {
+      "key": "allow_seasons",
+      "type": "boolean",
+      "label": {
+        "en": "Allow the season changes",
+        "fr": "Autoriser les changements de saison"
+      },
+      "description": {
+        "en": "Off by default. Off: \"Winter\" (heating on) is refused. \"Summer\" (heating off) is always allowed. \"Cooling\" is never sent from Gladys in this version.",
+        "fr": "Désactivé par défaut. Désactivé : « Hiver » (chauffage en marche) est refusé. « Été » (chauffage arrêté) est toujours permis. « Rafraîchissement » n'est jamais envoyé depuis Gladys dans cette version."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "poll_interval",
+      "type": "number",
+      "label": {
+        "en": "Refresh interval (s)",
+        "fr": "Intervalle de rafraîchissement (s)"
+      },
+      "description": {
+        "en": "How often iNext is read, in seconds.",
+        "fr": "Fréquence de lecture d'iNext, en secondes."
+      },
+      "required": false,
+      "default": 120,
       "min": 60,
-      "max": 3600
+      "max": 900
+    },
+    {
+      "key": "language",
+      "type": "select",
+      "label": {
+        "en": "Language of the feature names",
+        "fr": "Langue des noms des fonctionnalités"
+      },
+      "description": {
+        "en": "Used for the names of the devices and features added from now on, for the status texts and for the command errors.",
+        "fr": "Sert aux noms des appareils et des fonctionnalités ajoutés désormais, aux textes d'état et aux erreurs des commandes."
+      },
+      "required": false,
+      "default": "fr",
+      "options": [
+        {
+          "value": "fr",
+          "label": {
+            "en": "French",
+            "fr": "Français"
+          }
+        },
+        {
+          "value": "en",
+          "label": {
+            "en": "English",
+            "fr": "Anglais"
+          }
+        }
+      ]
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
+      "key": "test_connection",
+      "label": {
+        "en": "Test the connection",
+        "fr": "Tester la connexion"
+      },
+      "description": {
+        "en": "Reads iNext once (even after a refused account, but never two sign-ins within a minute) and shows its state.",
+        "fr": "Lit iNext une fois (même après un compte refusé, mais jamais deux connexions en moins d'une minute) et affiche son état."
+      },
       "timeout_seconds": 30
-    },
-    {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
-    }
-  ],
-  "scene_triggers": [
-    {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
-      "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
-      },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
-        },
-        {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
-          "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
-          ]
-        }
-      ],
-      "variables": [
-        {
-          "key": "target",
-          "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
-        }
-      ]
-    }
-  ],
-  "scene_actions": [
-    {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
-      },
-      "timeout_seconds": 15,
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ],
-      "outputs": [
-        {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
-        }
-      ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
     }
   ]
 }

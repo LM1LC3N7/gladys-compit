@@ -5,19 +5,21 @@ contributors.
 
 ## What this is
 
-A Gladys Assistant **external integration**: a Node.js service (Node 22+, ESM,
-no build step) that runs in its own sandboxed Docker container and talks to
-Gladys through
+A Gladys Assistant **external integration** for Compit heating controllers
+through the iNext cloud, with the user's account: a Node.js service (Node 22+,
+ESM, no build step) that runs in its own sandboxed Docker container and talks
+to Gladys through
 [`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js),
 its only runtime dependency. It started from the official JavaScript template.
+`TODO.md` holds the status, the decisions and what comes next.
 
 ## Commands
 
 ```bash
 npm install
 npm test                                  # node --test, the built-in runner
-node --test test/devices.test.js          # one file
-node --test --test-name-pattern "plug"    # tests whose name matches
+node --test test/app.test.js              # one file
+node --test --test-name-pattern "Summer"  # tests whose name matches
 npm run lint                              # ESLint
 npm run format:check                      # Prettier, as the CI runs it
 npm run format                            # Prettier, fix in place
@@ -31,46 +33,62 @@ pushing.
 ## Architecture
 
 ```
-index.js                          SDK wiring only: handlers registered before connect()
-src/devices/index.js              registry of the device blueprints + dispatch helpers
-src/devices/<type>.js             one device type per file (buildDevice, onPoll, onSetValue...)
-src/scenes.js                     scene action handlers (manifest `scene_actions`)
-src/widgets.js                    dashboard widget handlers (manifest `widgets`)
-src/config.js                     DEFAULT_CONFIG (mirrors the manifest defaults) + normalization
-src/weather.js                    example driver (Open-Meteo)
-gladys-assistant-integration.json manifest: name, config_schema, actions, image...
+index.js                          SDK wiring only
+src/handlers.js                   SDK handlers -> CompitApp (shared with the tests)
+src/app.js                        lifecycle, polling, errors, devices, badges, commands, guards
+src/compit/client.js              the iNext API: sign-in, registration, token, reads, writes
+src/compit/http.js                bounded HTTPS request, deadlines, beforeSend, no secret in errors
+src/compit/errors.js              error codes
+src/model.js                      the answers checked and reduced (pure)
+src/catalog.js                    device type -> parameter code of each feature (pure)
+src/devices.js                    devices and states for Gladys (pure)
+src/config.js                     config_schema normalized (ceilings)
+src/store.js                      /data: pause, refused account, last sign-in, sticky stops
+src/publisher.js                  states within Gladys' limits
+gladys-assistant-integration.json manifest
 docs/en.md, docs/fr.md            user documentation, re-hosted by Gladys (mandatory)
-test/                             node --test, against the SDK's fake Gladys (integration-sdk/testing)
+test/                             node --test, against the SDK's fake Gladys and a fake iNext
 .github/scripts/release.mjs       release helpers (manifest bump, changelog), tested in test/
 ```
 
 ## Rules
 
-- **External ids are forever.** Build them with
-  `gladys.externalIds(type, platformId)`, `platformId` being the unique id the
-  platform gives the device (serial, cloud id, MAC), never a label. Gladys keys
-  devices, their history, scenes and dashboards on them: changing one creates a
-  new device and orphans the old one. The same goes for every key users store:
-  manifest `config_schema`, `actions`, widget and scene keys, feature keys.
-- **The container rootfs is read-only.** Write only under `/data`, the one
-  writable volume. Never log tokens, passwords or API keys.
+- **External ids are forever**: device `compit:<device id>`, features
+  `room-temperature`, `room-target`, `setpoint`, `season`,
+  `outdoor-temperature`, `boiler-temperature`, `dhw-temperature`,
+  `dhw-setpoint`, `mixer-temperature`, `mixer2-temperature`,
+  `buffer-temperature`, `return-temperature`, `collector-temperature`,
+  `humidity`, `fuel-level`, `alarms`, `status`. A republished device never
+  loses a feature (`keepCreatedFeatures`).
+- Manifest keys (`email`, `password`, `allow_setpoints`, `max_setpoint`,
+  `allow_dhw`, `max_dhw`, `allow_seasons`, `poll_interval`, `language`, the
+  action `test_connection`) are frozen.
+- **No switch, no writable binary.** Commands are `thermostat` setpoints and a
+  `text/select` season, each behind its own option, off by default.
+- **"Summer" (heating off) is never blocked** by its option, a pause or another
+  command; the exact refusal cases are listed in the docs: keep them in sync.
+- **Bounds**: room 5 °C to the ceiling (24 °C by default, 30 °C at most); hot
+  water 20 °C to the ceiling (55 °C by default, 60 °C at most); always
+  intersected with the bounds the controller gives.
+- **Secrets**: the e-mail address, the password and the token never reach a
+  log, a status, an error, `/data` (they live in private fields of the
+  client). `/data` holds a salted fingerprint of refused credentials only.
+  A secret field is "kept by Gladys in its database, never shown again",
+  never said to be protected by a cipher.
+- **No app identity**: the client registers as "Gladys" (uid
+  `gladys-compit`), never as another application, no application key, no
+  User-Agent of an app.
+- **Failures**: a refused account is a final stop (no automatic retry); never
+  two sign-ins within a minute; 429/5xx a bounded pause persisted; never read
+  sooner than the interval; a reconnection to Gladys clears none of them.
+- Units only from the core's `DEVICE_FEATURE_UNITS_BY_CATEGORY`.
+- **The container rootfs is read-only.** Write only under `/data`.
 - **Versions belong to the Release workflow** (Actions → Release). Never edit
   `version` in `package.json` or in the manifest, nor the `docker_image` tag,
-  by hand — except on the README's hand-pushed tag path, which bumps all three
-  together before tagging. `test/manifest.test.js` checks they agree.
+  by hand (0.1.0 was set once by hand, see `TODO.md`).
 - **Changelog.** Every user-visible change adds a line under `## [Unreleased]`
-  in `CHANGELOG.md` (`### Added`, `Changed`, `Fixed`, `Removed`, `Security`).
-  Never write a version heading: the Release workflow moves the section, and it
-  becomes the notes of the GitHub Release.
-- **Manifest.** Texts are multi-language objects `{ "en": ..., "fr": ... }`:
-  `label`, `description` and `placeholder` alike, never a plain string. The
-  catalog `description` holds 10 to 100 characters per language. A field the
-  older cores do not know needs a higher `gladys_version` minimum
-  (`categories`: 4.86.0; `widgets`, `scene_triggers`, `scene_actions`,
-  `type: "provider"`: 5.1.0). `test/manifest.test.js` ties the manifest to the
-  code (defaults, action, scene and widget handlers): change both sides
-  together.
-- **User-facing text** is bilingual (English and French): action messages,
-  manifest texts, and `docs/en.md` / `docs/fr.md`, kept in sync.
+  in `CHANGELOG.md`. Never write a version heading.
+- **Files** are UTF-8 without BOM (`test/encoding.test.js`); invisible
+  characters are written as escapes in the source, never as such.
 - **Style.** Prettier formats, ESLint catches mistakes. Comments explain why,
   in English. Tests never touch the network.

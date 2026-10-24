@@ -1,45 +1,95 @@
 // -----------------------------------------------------------------------------
-// Integration configuration.
-//
-// The configuration is filled in by the user in Gladys, from the `config_schema`
-// declared in `gladys-assistant-integration.json`. The SDK fetches it for you
-// (`gladys.getConfig()`) and notifies you of every change through
-// `gladys.onConfigUpdated()`.
-//
-// This module only provides defaults and normalizes the received object, so the
-// rest of the code never has to deal with `undefined`.
+// The configuration: the manifest `config_schema` values, normalized so the
+// rest of the code never deals with strings typed in a form. The password is
+// kept here and in the client only: never logged, never in /data, never in a
+// status or an error. The e-mail address is never logged either.
 // -----------------------------------------------------------------------------
 
-// Defaults: they MUST stay consistent with the `default` values declared in the
-// `config_schema` of the manifest.
+import { DHW, POLL_INTERVAL, SETPOINT } from './constants.js';
+
+/** Defaults, mirrored by the manifest (checked by test/manifest.test.js). */
 export const DEFAULT_CONFIG = {
-  latitude: 48.8566, // Paris
-  longitude: 2.3522,
-  unit: 'celsius', // 'celsius' | 'fahrenheit'
-  // Seconds between two reads of the polled sensors. Gladys polls at most once
-  // a minute: slower intervals are applied by skipping polls (see
-  // createPoller in src/devices/index.js).
-  poll_frequency: 300,
-  // Reserved key (NOT in config_schema): because the manifest declares both
-  // 'local' and 'cloud' in its `transports` field, Gladys shows a standard
-  // "Prefer the local connection" toggle and sends the user's choice here.
-  // Read-only for the integration; defaults to true.
-  GLADYS_PREFER_LOCAL: true,
+  email: '',
+  allow_setpoints: false,
+  allow_dhw: false,
+  allow_seasons: false,
+  max_setpoint: SETPOINT.ceilingDefault,
+  max_dhw: DHW.ceilingDefault,
+  poll_interval: POLL_INTERVAL.default,
+  language: 'fr',
 };
 
-/**
- * Merge the user config with the defaults.
- * @param {Record<string, unknown>} raw config returned by the SDK
- */
+/** Only `true` (or the text "true") allows: anything else, missing included, refuses. */
+const strictTrue = (value) => value === true || value === 'true';
+
+/** A number typed in the form: a finite number, or undefined ('' and null are not 0). */
+export function numberOf(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === 'string' && /^\s*-?\d{1,6}(\.\d{1,6})?\s*$/.test(value)) {
+    return Number(value);
+  }
+  return undefined;
+}
+
+/** A ceiling: whole degrees within [low, high], else the default. Never above `high`. */
+function ceiling(value, { ceilingMin, max, ceilingDefault }) {
+  const number = numberOf(value);
+  if (number === undefined) {
+    return ceilingDefault;
+  }
+  return Math.min(max, Math.max(ceilingMin, Math.floor(number)));
+}
+
+export const roomCeilingOf = (value) => ceiling(value, SETPOINT);
+export const dhwCeilingOf = (value) => ceiling(value, DHW);
+
+const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
+
 export function normalizeConfig(raw = {}) {
+  const c = { ...DEFAULT_CONFIG, password: '' };
+  for (const [key, value] of Object.entries(raw ?? {})) {
+    if (Object.hasOwn(c, key) && value != null) {
+      c[key] = value;
+    }
+  }
+  const email = typeof c.email === 'string' ? c.email.trim() : '';
+  const password = typeof c.password === 'string' ? c.password : '';
+  let problem;
+  if (email === '' && password === '') {
+    problem = 'empty';
+  } else if (email === '') {
+    problem = 'noEmail';
+  } else if (!EMAIL.test(email)) {
+    problem = 'badEmail';
+  } else if (password === '') {
+    problem = 'noPassword';
+  } else if (password.length > 256) {
+    problem = 'badPassword';
+  }
+  const interval = numberOf(c.poll_interval);
   return {
-    ...DEFAULT_CONFIG,
-    ...raw,
-    // Force the types: config may arrive as strings from a form.
-    latitude: Number(raw.latitude ?? DEFAULT_CONFIG.latitude),
-    longitude: Number(raw.longitude ?? DEFAULT_CONFIG.longitude),
-    poll_frequency: Number(raw.poll_frequency ?? DEFAULT_CONFIG.poll_frequency),
-    // The preference is a boolean; anything but an explicit false means true.
-    GLADYS_PREFER_LOCAL: raw.GLADYS_PREFER_LOCAL !== false,
+    /** Why the configuration cannot be used (shown in the status), else undefined. */
+    problem,
+    email: problem ? '' : email,
+    password: problem ? '' : password,
+    allowSetpoints: strictTrue(c.allow_setpoints),
+    allowDhw: strictTrue(c.allow_dhw),
+    allowSeasons: strictTrue(c.allow_seasons),
+    roomCeiling: roomCeilingOf(c.max_setpoint),
+    dhwCeiling: dhwCeilingOf(c.max_dhw),
+    pollInterval:
+      interval === undefined
+        ? POLL_INTERVAL.default
+        : Math.min(POLL_INTERVAL.max, Math.max(POLL_INTERVAL.min, Math.round(interval))),
+    language: c.language === 'en' ? 'en' : 'fr',
   };
 }
+
+/** What a restart depends on: the account (compared in memory only, never stored). */
+export const connectionKey = (config) =>
+  JSON.stringify([config.problem ?? null, config.email, config.password]);
+
+/** The secret whose refusal is remembered (as a salted fingerprint only). */
+export const accountSecret = (config) => `${config.email}\n${config.password}`;

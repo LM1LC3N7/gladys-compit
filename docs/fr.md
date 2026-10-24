@@ -1,67 +1,108 @@
-# Template de démonstration
+# Compit pour Gladys
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Intégration non officielle, sans lien avec Compit. Elle affiche dans Gladys les
+régulateurs de chauffage Compit de votre compte iNext (le cloud de l'application
+iNext) : thermostats d'ambiance Nano One, Nano Color et Nano Color 2,
+régulateurs de chaudière (BioMax, EL750, R470…), de vanne mélangeuse (R350.M,
+R350 T3, R810…), d'eau chaude, solaires et de pompe à chaleur (R480, R490,
+R 900).
 
-## Ce que vous obtenez
+**Jamais testé avec un vrai régulateur ni un vrai compte** : elle suit la
+bibliothèque compit-inext-api (celle de l'intégration Compit de Home
+Assistant), l'API iNext n'est pas documentée publiquement. Merci de signaler
+tout écart.
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+## Ce qu'elle fait
 
-## Configuration
+Un appareil Gladys par appareil Compit du compte, avec, selon le modèle :
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+- température ambiante, consigne en cours (lue), consigne manuelle ;
+- saison de chauffage (Hiver, Été = chauffage arrêté, Rafraîchissement) ;
+- températures extérieure, de la chaudière, de l'eau chaude, du circuit
+  mélangé, du ballon tampon, de retour, du capteur solaire ;
+- consigne de l'eau chaude, humidité, niveau de combustible ;
+- alarmes (la liste que donne iNext, ou « Aucune alarme ») et état.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+Les valeurs sont lues toutes les 120 secondes par défaut (de 60 à 900 s). Un
+régulateur qui n'a pas joint le cloud iNext depuis plus de 30 minutes est
+signalé dans « État », et ses anciennes valeurs ne sont pas republiées.
 
-## Actions
+## Installation
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+1. Installez l'intégration depuis le store de Gladys.
+2. Saisissez l'adresse e-mail et le mot de passe de votre compte iNext, puis
+   enregistrez. Le mot de passe est gardé par Gladys dans sa base, jamais
+   réaffiché, et envoyé seulement à Compit (inext.compit.pl, en https).
+3. Ajoutez les appareils depuis l'onglet Découverte.
 
-## Scènes
+À sa première connexion, Gladys s'enregistre sur le compte comme un nouveau
+client sous le nom « Gladys » (le portail iNext le demande à tout client) :
+c'est l'unique écriture faite sans commande de votre part. Aucune clé
+d'application n'est utilisée et Gladys ne se fait passer pour aucune
+application.
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+## Commandes (désactivées par défaut)
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+Par défaut Gladys ne fait que lire. Trois options, chacune désactivée par
+défaut :
 
-## Tableau de bord
+- **Consigne d'ambiance** : la consigne manuelle d'un thermostat Nano, de 5 °C
+  au plafond choisi (24 °C par défaut, de 16 à 30 °C, jamais plus de 30 °C),
+  par pas de 0,1 °C.
+- **Consigne d'eau chaude** : de 20 °C au plafond choisi (55 °C par défaut, de
+  40 à 60 °C, jamais plus de 60 °C quoi qu'on saisisse, risque de brûlure).
+- **Saison** : « Hiver » (chauffage en marche). « Rafraîchissement » n'est
+  jamais envoyé depuis Gladys dans cette version.
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+Les bornes du régulateur (minimum et maximum que donne iNext pour le
+paramètre) s'appliquent en plus. Aucune commande n'est un interrupteur
+(switch) : un « éteins tout » d'un assistant vocal ou d'une scène n'atteint
+jamais le chauffage.
 
-## Dépannage
+Une commande (sauf « Été ») est décidée sur une lecture fraîche de l'appareil,
+juste avant l'écriture ; elle est refusée sans rien envoyer si l'option est
+désactivée (vérifiée aussi juste avant l'envoi), si la valeur sort des bornes,
+si une valeur manque, si le régulateur dit le paramètre non modifiable, s'il
+n'a pas joint le cloud depuis 30 minutes, si iNext est en pause (occupé ou en
+panne) ou répond trop lentement, si une autre commande est en cours sur le même
+appareil, ou si « Été » a été demandé entre-temps. Une commande qui a pu partir
+sans réponse est annoncée « envoyée, sans confirmation ».
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+**« Été » (chauffage arrêté) n'a pas besoin d'option** et passe même pendant
+une pause d'iNext (un seul essai). Il est écrit sans lecture préalable. Il est
+refusé seulement dans ces cas :
+
+- aucun compte configuré, ou le compte a été changé dans la configuration pendant
+  l'envoi ;
+- pas de session ouverte : connexion en cours (une seule par minute) ou compte
+  refusé ;
+- type de l'appareil inconnu (jamais listé par iNext) ou sans saison ;
+- une écriture du même appareil déjà partie ne se termine pas dans les 3,5 s ;
+- iNext n'est pas joint à temps (« non envoyée »), refuse la commande
+  (« refusée ») ou ne répond pas (« envoyée, sans confirmation »).
+
+Il annule une commande du même appareil pas encore envoyée. Si un « Hiver »
+est parti juste avant, « Été » est réécrit (3 fois au plus, pendant 90 s) par
+les lectures de suivi qui montreraient autre chose.
+
+## Limites et sécurité
+
+- Compte refusé (mauvais e-mail ou mot de passe, jeton refusé juste après la
+  connexion, enregistrement de Gladys refusé) : arrêt gardé dans /data,
+  **aucun nouvel essai automatique**. Enregistrez d'autres identifiants, ou
+  pressez « Tester la connexion » (un essai) : seul un succès lève l'arrêt.
+- Jamais deux connexions en moins d'une minute, même après un redémarrage.
+- HTTP 429 ou 5xx : pause de 1 minute à 6 heures, gardée dans /data.
+- Un appareil dont iNext refuse l'accès (401/403) alors que le compte lit :
+  « Accès refusé », relu après 15 minutes puis jusqu'à 1 heure, sans nouvelle
+  connexion.
+- Rien de secret dans les journaux, /data ou les statuts : /data ne garde
+  qu'une empreinte salée des identifiants refusés, effacée au premier succès.
+- Rafraîchissement, préréglages (vacances, absence) et thermostats R 900 non
+  commandables dans cette version.
+
+## Crédits
+
+Logique portée de [compit-inext-api](https://github.com/Przemko92/compit-inext-api)
+(Apache-2.0, Przemko92), voir `THIRD_PARTY_NOTICES.md`. Compit et iNext sont des
+marques de leur propriétaire.

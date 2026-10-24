@@ -308,7 +308,9 @@ export class CompitApp {
     const wait = changed || lifted ? 0 : Math.min(this.interval, this.interval - since);
     if (wait > 0 && !this.memory.refused) {
       this.lastAttemptAt = this.clock() - since;
-      this.account.firstAt = this.clock() + wait;
+      // The first read comes after the wait, and never during a pause (schedule).
+      const paused = Math.max(0, this.memory.pausedUntil - this.now());
+      this.account.firstAt = this.clock() + Math.max(wait, paused);
       this.schedule(wait);
       // The sticky "Summer" guards of the previous run are checked by their
       // follow-up reads (5 s, 20 s), whatever the wait (one sign-in a minute).

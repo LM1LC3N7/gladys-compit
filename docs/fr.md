@@ -100,8 +100,12 @@ Il est refusé seulement dans ces cas :
 Il annule une commande du même appareil pas encore envoyée, et n'attend
 jamais la réponse d'une écriture précédente, seulement son départ. Si une
 autre écriture du même appareil est partie juste avant lui (elle pourrait
-arriver après), « Été » est réécrit (3 fois au plus, pendant 90 s, même après
-un redémarrage) par les lectures de suivi qui montreraient autre chose.
+arriver après), « Été » est réécrit (3 fois au plus, pendant 90 s) par les
+lectures de suivi qui montreraient autre chose. La garde est gardée dans
+/data : après un redémarrage dans ces 90 s, ses lectures de suivi continuent,
+sauf dans deux cas où elles sont abandonnées sans nouvel essai : une connexion
+partie moins d'une minute avant le redémarrage, ou une pause d'iNext (429/5xx)
+en cours.
 
 ## Limites et sécurité
 
@@ -116,8 +120,8 @@ un redémarrage) par les lectures de suivi qui montreraient autre chose.
   connexion » (les lectures de suivi après une commande, à 5 s et 20 s, et la
   vérification du jeton sur la liste des passerelles lisent plus tôt). Après un
   redémarrage dans l'intervalle, le statut dit quand vient la prochaine
-  lecture ; un « Été » collant gardé dans /data est quand même vérifié par ses
-  lectures de suivi.
+  lecture (ou la fin d'une pause) ; un « Été » collant gardé dans /data est
+  vérifié par ses lectures de suivi, sauf dans les deux cas cités plus haut.
 - HTTP 429, ou une panne de toute la lecture : pause de 1 minute à 6 heures
   (429/5xx), gardée dans /data. Un appareil seul en panne (5xx, réponse
   illisible) est marqué « Non lu » et relu de plus en plus rarement (jusqu'à

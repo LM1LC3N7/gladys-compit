@@ -96,8 +96,11 @@ refused only in these cases:
 It cancels a command of the same device not sent yet, and never waits for the
 answer of a previous write, only for its departure. If another write of the
 same device left just before it (it may land after), "Summer" is written
-again (3 times at most, for 90 s, even after a restart) by the follow-up reads
-that would show otherwise.
+again (3 times at most, for 90 s) by the follow-up reads that would show
+otherwise. The guard is kept in /data: after a restart within those 90 s, its
+follow-up reads go on, except in two cases where they are dropped without a new
+try: a sign-in left less than a minute before the restart, or a pause of iNext
+(429/5xx) under way.
 
 ## Limits and safety
 
@@ -111,8 +114,8 @@ that would show otherwise.
   a restart or with the "Test the connection" button (the follow-up reads after
   a command, at 5 s and 20 s, and a check of the token on the list of gates
   read sooner). After a restart within the interval, the status says when the
-  next read comes; a sticky "Summer" kept in /data is still checked by its
-  follow-up reads.
+  next read comes (or the end of a pause); a sticky "Summer" kept in /data is
+  checked by its follow-up reads, except in the two cases listed above.
 - HTTP 429, or a failure of the whole read: a pause of 1 minute to 6 hours
   (429/5xx), kept in /data. One failing device (5xx, unreadable answer) is
   shown "Not read" and read less and less often (up to 1 hour); the others go

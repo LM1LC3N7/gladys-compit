@@ -974,3 +974,15 @@ test('S20: a sticky "Summer" reloaded right after a recent read is still checked
   assert.equal(compit.value(THERMOSTAT, '__trybpracyinstalacji'), 1);
   assert.ok(stateReads(compit, BOILER) === 0, 'the follow-ups read the guarded device only');
 });
+
+test('a restart during a pause announces the next read at the end of the pause', async (t) => {
+  const compit = fakeCompit({ registered: true });
+  const store = memoryStore({
+    pausedUntil: NOW + HOUR,
+    lastReadAt: NOW - 10 * SECOND,
+    lastLoginAt: NOW - 10 * MINUTE,
+  });
+  const { gladys } = await setup(t, { compit, store, create: false });
+  assert.match(message(gladys).en, /next read in (59|60) min/);
+  assert.equal(compit.requests.length, 0);
+});

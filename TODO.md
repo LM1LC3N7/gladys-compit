@@ -24,7 +24,12 @@ to date at the end of every milestone.
       guards reloaded at a restart get their follow-up reads whatever the
       wait; M1 status and Discovery during the wait after a restart; M2
       tokens never enumerable on errors; M3, M5 docs.
-- [ ] **Review approval** (xhigh: heating, cloud account, undocumented API).
+- [x] **Review 3** (approved): minors 1 (docs: the two cases where a
+      reloaded sticky "Summer" is not checked) and 2 (status after a restart
+      during a pause) fixed. Left: the other devices show "State not read"
+      after the follow-up read of a restart until the periodic read
+      (cosmetic, r3 minor 3); `fcm_token` empty (r3 minor 4, "To check").
+- [x] **Review approval** (xhigh: heating, cloud account, undocumented API): r3.
 - [ ] **Milestone 2 — real account**: run against a real iNext account (see
       "To check"); turn the answers (anonymized) into fixtures.
 

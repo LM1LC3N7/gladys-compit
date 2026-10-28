@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-28
+
 ### Changed
 
 - Hot water ceiling raised to 65 °C (default 65 °C), device limits still apply.
@@ -34,5 +36,6 @@ the notes of the version's GitHub Release.
 - One failing device never stops the others; a refused device never signs in
   again; a restart or the test button never reads sooner than the interval.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-compit/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-compit/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/LM1LC3N7/gladys-compit/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/LM1LC3N7/gladys-compit/releases/tag/v0.1.1

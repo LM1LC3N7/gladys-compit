@@ -73,7 +73,7 @@ test/                             node --test, against the SDK's fake Gladys and
   answer). Its exact refusal cases are listed in the docs: keep the code
   (`protect`, `sessionFor`) and the docs in sync.
 - **Bounds**: room 5 °C to the ceiling (24 °C by default, 30 °C at most); hot
-  water 20 °C to the ceiling (55 °C by default, 60 °C at most); always
+  water 20 °C to the ceiling (65 °C by default, 65 °C at most); always
   intersected with the bounds the controller gives.
 - **Secrets**: the e-mail address, the password and the token never reach a
   log, a status, an error, `/data` (they live in private fields of the

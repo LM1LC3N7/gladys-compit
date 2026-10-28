@@ -53,8 +53,9 @@ défaut :
   jamais plus de 30 °C), par pas de 0,1 °C. Sur le Nano One, la consigne est
   seulement lue.
 - **Consigne d'eau chaude** : en degrés entiers, de 20 °C au plafond choisi
-  (55 °C par défaut, de 40 à 60 °C, jamais plus de 60 °C quoi qu'on saisisse,
-  risque de brûlure). Elle apparaît comme un chauffe-eau dans Gladys, jamais
+  (65 °C par défaut, de 40 à 65 °C, jamais plus de 65 °C quoi qu'on saisisse,
+  risque de brûlure), et jamais plus que le maximum donné par le régulateur
+  s'il est plus bas. Elle apparaît comme un chauffe-eau dans Gladys, jamais
   comme un thermostat d'ambiance.
 - **Saison** : « Hiver » (chauffage en marche). « Rafraîchissement » n'est
   jamais envoyé depuis Gladys dans cette version.

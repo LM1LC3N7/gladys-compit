@@ -132,13 +132,13 @@
         "fr": "Plafond des consignes d'eau chaude (°C)"
       },
       "description": {
-        "en": "Gladys never sets the hot water above this temperature (scalding risk). 55 °C by default, from 40 to 60 °C (never more than 60 °C, whatever is typed). The floor is 20 °C.",
-        "fr": "Gladys ne règle jamais l'eau chaude au-dessus de cette température (risque de brûlure). 55 °C par défaut, de 40 à 60 °C (jamais plus de 60 °C, quoi qu'on saisisse). Le plancher est de 20 °C."
+        "en": "Gladys never sets the hot water above this temperature (scalding risk). 65 °C by default, from 40 to 65 °C (never more than 65 °C, whatever is typed; the controller's own maximum applies when lower). The floor is 20 °C.",
+        "fr": "Gladys ne règle jamais l'eau chaude au-dessus de cette température (risque de brûlure). 65 °C par défaut, de 40 à 65 °C (jamais plus de 65 °C, quoi qu'on saisisse ; le maximum du régulateur s'applique s'il est plus bas). Le plancher est de 20 °C."
       },
       "required": false,
-      "default": 55,
+      "default": 65,
       "min": 40,
-      "max": 60
+      "max": 65
     },
     {
       "key": "allow_seasons",

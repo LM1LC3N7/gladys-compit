@@ -166,9 +166,11 @@ test('configuration: commands off unless true, ceilings bounded whatever is type
   const c = normalizeConfig({ email: 'a@b.c', password: 'p' });
   assert.equal(c.problem, undefined);
   assert.deepEqual([c.allowSetpoints, c.allowDhw, c.allowSeasons], [false, false, false]);
-  assert.deepEqual([c.roomCeiling, c.dhwCeiling], [24, 55]);
+  assert.deepEqual([c.roomCeiling, c.dhwCeiling], [24, 65]);
   const high = normalizeConfig({ max_setpoint: 99, max_dhw: 95, allow_dhw: 'yes' });
-  assert.deepEqual([high.roomCeiling, high.dhwCeiling, high.allowDhw], [30, 60, false]);
+  assert.deepEqual([high.roomCeiling, high.dhwCeiling, high.allowDhw], [30, 65, false]);
+  assert.equal(normalizeConfig({ max_dhw: 65 }).dhwCeiling, 65);
+  assert.equal(normalizeConfig({ max_dhw: 65.5 }).dhwCeiling, 65);
   const low = normalizeConfig({ max_setpoint: '', max_dhw: 10 });
   assert.deepEqual([low.roomCeiling, low.dhwCeiling], [24, 40]);
   assert.equal(normalizeConfig({ email: 'bad', password: 'p' }).problem, 'badEmail');

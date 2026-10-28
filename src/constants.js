@@ -75,15 +75,16 @@ export const SETPOINT = {
 };
 
 /**
- * Hot water setpoints, in °C: from 20 °C to the configured ceiling (55 °C by
- * default, 40 to 60 °C, never above 60 °C whatever is typed: scalding), and
- * always within the bounds the controller gives for the parameter.
+ * Hot water setpoints, in °C: from 20 °C to the configured ceiling (65 °C by
+ * default, 40 to 65 °C, never above 65 °C whatever is typed: scalding), and
+ * always within the bounds the controller gives for the parameter (the lower
+ * maximum wins).
  */
 export const DHW = {
   min: 20,
-  max: 60,
+  max: 65,
   ceilingMin: 40,
-  ceilingDefault: 55,
+  ceilingDefault: 65,
 };
 
 /**

@@ -51,8 +51,9 @@ By default Gladys only reads. Three options, each off by default:
   never above 30 °C), in steps of 0.1 °C. On the Nano One the setpoint is read
   only.
 - **Hot water setpoint**: in whole degrees, from 20 °C to the chosen ceiling
-  (55 °C by default, 40 to 60 °C, never above 60 °C whatever is typed:
-  scalding risk). It shows as a water heater in Gladys, never as a room
+  (65 °C by default, 40 to 65 °C, never above 65 °C whatever is typed:
+  scalding risk), and never above the maximum the controller gives when it
+  is lower. It shows as a water heater in Gladys, never as a room
   thermostat.
 - **Season**: "Winter" (heating on). "Cooling" is never sent from Gladys in
   this version.

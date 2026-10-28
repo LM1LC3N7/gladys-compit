@@ -63,8 +63,7 @@ test('the store basics; version 0.1.0 everywhere', () => {
       'say it was never tested',
     );
     assert.match(docs, /24\s*°C/, 'document the room ceiling');
-    assert.match(docs, /55\s*°C/, 'document the hot water ceiling');
-    assert.match(docs, /60\s*°C/, 'document the hot water hard maximum');
+    assert.match(docs, /65\s*°C/, 'document the hot water ceiling and its hard maximum');
     assert.match(docs, /compit-inext-api/, 'credit the reference');
   }
   assert.match(manifest.config_schema[0].description.fr, /Jamais testé avec un vrai régulateur/);
@@ -113,8 +112,8 @@ test('the configuration matches the code; the commands are off; the ceiling boun
     [fields.max_dhw.default, fields.max_dhw.min, fields.max_dhw.max],
     [DHW.ceilingDefault, DHW.ceilingMin, DHW.max],
   );
-  assert.equal(DHW.ceilingDefault, 55, 'hot water 55 °C by default');
-  assert.equal(DHW.max, 60, 'hot water never above 60 °C');
+  assert.equal(DHW.ceilingDefault, 65, 'hot water 65 °C by default');
+  assert.equal(DHW.max, 65, 'hot water never above 65 °C');
   assert.deepEqual(
     [fields.poll_interval.min, fields.poll_interval.max],
     [POLL_INTERVAL.min, POLL_INTERVAL.max],

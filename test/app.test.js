@@ -206,7 +206,7 @@ test('registers Gladys once under its own name, signs in, lists and reads the de
   const byRole = (d, role) => d.features.find((f) => f.external_id.endsWith(`:${role}`));
   assert.equal(byRole(thermostat, 'setpoint').category, 'thermostat');
   assert.equal(byRole(thermostat, 'setpoint').max, 30);
-  assert.equal(byRole(boiler, 'dhw-setpoint').max, 60);
+  assert.equal(byRole(boiler, 'dhw-setpoint').max, 65);
   assert.deepEqual(
     byRole(thermostat, 'season').supported_options.map((o) => o.value),
     ['winter', 'summer', 'cooling'],
@@ -497,7 +497,7 @@ test('no sign-in inside a setpoint command: a 401 refuses it, the next poll chec
   ok(await command(THERMOSTAT, 'setpoint', 22));
 });
 
-test('hot water: off by default, 55 °C by default, never above 60 °C, within the controller', async (t) => {
+test('hot water: off by default, 65 °C by default, never above 65 °C, within the controller', async (t) => {
   const compit = fakeCompit({ registered: true });
   const off = await setup(t, { compit });
   refused(await off.command(BOILER, 'dhw-setpoint', 50), /eau chaude sont désactivées/);
@@ -506,11 +506,26 @@ test('hot water: off by default, 55 °C by default, never above 60 °C, within t
   for (const d of [...on.gladys.fake.discoveredDevices]) {
     await on.gladys.fake.deviceCreated(d);
   }
-  refused(await on.command(BOILER, 'dhw-setpoint', 56), /de 20 à 55 °C/);
-  refused(await on.command(BOILER, 'dhw-setpoint', 30), /de 35 à 55 °C/, 'the controller min');
-  ok(await on.command(BOILER, 'dhw-setpoint', 52));
-  assert.deepEqual(compit.writes()[0].body, { values: [{ code: '__tzadcwu', value: 52 }] });
+  refused(await on.command(BOILER, 'dhw-setpoint', 66), /de 20 à 65 °C/);
+  refused(await on.command(BOILER, 'dhw-setpoint', 65.5), /degrés entiers/);
+  refused(await on.command(BOILER, 'dhw-setpoint', 30), /de 35 à 65 °C/, 'the controller min');
+  assert.equal(compit.writes().length, 0);
+  ok(await on.command(BOILER, 'dhw-setpoint', 65));
+  assert.deepEqual(compit.writes()[0].body, { values: [{ code: '__tzadcwu', value: 65 }] });
+  compit.states[BOILER].params.find((p) => p.code === '__tzadcwu').max = 60;
+  refused(
+    await on.command(BOILER, 'dhw-setpoint', 62),
+    /de 35 à 60 °C/,
+    'the controller max wins when lower',
+  );
+  compit.states[BOILER].params.find((p) => p.code === '__tzadcwu').max = 70;
   on.app.stop();
+  const low = await setup(t, { compit, config: { ...DHW, max_dhw: 55 }, create: false });
+  for (const d of [...low.gladys.fake.discoveredDevices]) {
+    await low.gladys.fake.deviceCreated(d);
+  }
+  refused(await low.command(BOILER, 'dhw-setpoint', 56), /de 20 à 55 °C/);
+  low.app.stop();
   const high = await setup(t, {
     compit,
     config: { ...DHW, max_dhw: 75 },
@@ -519,7 +534,7 @@ test('hot water: off by default, 55 °C by default, never above 60 °C, within t
   for (const d of [...high.gladys.fake.discoveredDevices]) {
     await high.gladys.fake.deviceCreated(d);
   }
-  refused(await high.command(BOILER, 'dhw-setpoint', 61), /de 20 à 60 °C/);
+  refused(await high.command(BOILER, 'dhw-setpoint', 66), /de 20 à 65 °C/);
   assert.equal(compit.writes().length, 1);
 });
 

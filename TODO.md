@@ -118,7 +118,9 @@ to date at the end of every milestone.
   Hot water = `DHW_TARGET_TEMPERATURE` as `water-heater/target-temperature`
   in whole degrees (review I7, as gladys-bsblan). Bounded by the
   configuration and by the `min`/`max` iNext gives, refused when the
-  parameter is not `write: true`.
+  parameter is not `write: true`. Hot water ceiling `max_dhw`: 65 °C by
+  default, 40–65 °C, never above 65 °C (Louis's rule of 2026-10-28, was
+  55/60); the controller's lower `max` still wins.
 - **Season** (`HVAC_MODE`, Nano One, Nano Color, Nano Color 2): `text/select`
   (never `thermostat/mode`, never a switch), 0 winter, 1 summer (heating off,
   Home Assistant's "off"), 2 cooling. "Cooling" is shown but never sent (a

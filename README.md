@@ -21,7 +21,7 @@ User guides: [English](docs/en.md), [français](docs/fr.md).
 - **Commands, each behind its own option, off by default**: the manual room
   setpoint (5 °C to a ceiling of 24 °C by default, 30 °C at most), the hot
   water setpoint (a water heater in whole degrees, 20 °C to a ceiling of
-  55 °C by default, 60 °C at most), the
+  65 °C by default, 65 °C at most), the
   season "Winter". Always within the bounds the controller gives. Decided on
   a fresh read, checked again right before the request leaves, refused after
   3.5 s, "sent, without confirmation" when the answer is missing.

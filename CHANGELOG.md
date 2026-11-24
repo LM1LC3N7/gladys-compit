@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-24
+
 ### Changed
 
 - Integration SDK 0.16.1 (no change for the devices).
@@ -40,6 +42,7 @@ the notes of the version's GitHub Release.
 - One failing device never stops the others; a refused device never signs in
   again; a restart or the test button never reads sooner than the interval.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-compit/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-compit/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/LM1LC3N7/gladys-compit/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/LM1LC3N7/gladys-compit/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/LM1LC3N7/gladys-compit/releases/tag/v0.1.1

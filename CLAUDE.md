@@ -9,7 +9,8 @@ A Gladys Assistant **external integration** for Compit heating controllers
 through the iNext cloud, with the user's account: a Node.js service (Node 22+,
 ESM, no build step) that runs in its own sandboxed Docker container and talks
 to Gladys through
-[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js),
+[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js)
+(v0.16),
 its only runtime dependency. It started from the official JavaScript template.
 `TODO.md` holds the status, the decisions and what comes next.
 
@@ -17,7 +18,7 @@ its only runtime dependency. It started from the official JavaScript template.
 
 ```bash
 npm install
-npm test                                  # node --test, the built-in runner
+npm test                                  # node --test --test-timeout=60000
 node --test test/app.test.js              # one file
 node --test --test-name-pattern "Summer"  # tests whose name matches
 npm run lint                              # ESLint
@@ -53,6 +54,12 @@ test/                             node --test, against the SDK's fake Gladys and
 
 ## Rules
 
+- **Features follow the core model.** Every feature has a numeric `min` and
+  `max` (0/0 for text), a non-empty name, `read_only` and `has_feedback`:
+  Gladys answers HTTP 422 otherwise. The SDK's fake Gladys (0.16.1) checks
+  part of it; `test/helpers/coreFeature.js` checks all (test/model.test.js).
+  Devices carry `should_poll: false` (Gladys 5.3 polls a device with
+  `poll_frequency` unless it says so).
 - **External ids are forever**: device `compit:<device id>`, features
   `room-temperature`, `room-target`, `setpoint`, `season`,
   `outdoor-temperature`, `boiler-temperature`, `dhw-temperature`,

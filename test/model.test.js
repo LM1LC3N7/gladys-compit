@@ -5,11 +5,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PARAMETERS, modelOf, parameterOf, rolesOfType } from '../src/catalog.js';
+import { createFakeGladys } from '@gladysassistant/integration-sdk/testing';
+import { MODELS, PARAMETERS, modelOf, parameterOf, rolesOfType } from '../src/catalog.js';
 import { normalizeConfig } from '../src/config.js';
 import { FEATURES, LIMITS, TIMINGS } from '../src/constants.js';
 import { parseJson } from '../src/compit/client.js';
-import { definitionOf, deviceStates, parseFeatureId, ROLES } from '../src/devices.js';
+import { buildDevice, definitionOf, deviceStates, parseFeatureId, ROLES } from '../src/devices.js';
+import { assertCoreDevice } from './helpers/coreFeature.js';
 import {
   alarmsOf,
   cleanText,
@@ -231,4 +233,18 @@ test('/data: the uid of the installation, the last read, the print of a refusal'
     'stops',
     'uid',
   ]);
+});
+
+test('every feature of every device type has a numeric min and max and the other core fields', () => {
+  const gladys = createFakeGladys({ selector: 'compit' });
+  const roles = new Set(ROLES);
+  let features = 0;
+  for (const type of [undefined, ...Object.keys(MODELS).map(Number)]) {
+    for (const language of ['en', 'fr']) {
+      const info = { id: 7, label: 'Salon', type, gateLabel: 'Gate' };
+      const device = buildDevice(gladys, 7, { roles, info, type, language });
+      features += assertCoreDevice(device, `type ${type} ${language}`);
+    }
+  }
+  assert.equal(features, (Object.keys(MODELS).length + 1) * 2 * ROLES.length);
 });

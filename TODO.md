@@ -171,3 +171,7 @@ to date at the end of every milestone.
   away parameter written first, behind their own option.
 - Hot water mode (off / on / schedule) as a select, "off" protective.
 - R 900 season, once its values are known.
+
+## Next patch
+
+- Migration review minors: see `_lots/migration-reviews/w10-gladys-compit-r1.md`.
